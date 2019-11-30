@@ -23,7 +23,6 @@ mod small_vec_builder;
 mod binary_merge;
 mod merge_state;
 
-mod dedup;
 mod iterators;
 
 #[cfg(test)]
