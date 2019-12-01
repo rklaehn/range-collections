@@ -7,6 +7,11 @@ use std::fmt::Debug;
 
 /// A typical write part for the merge state
 pub(crate) trait MergeStateMut: MergeStateRead {
+    // Consume n elements from a and b, will copy from a
+    fn advance_both(&mut self, copy: bool) -> EarlyOut {
+        self.advance_a(1, copy)?;
+        self.advance_b(1, false)
+    }
     /// Consume n elements of a
     fn advance_a(&mut self, n: usize, take: bool) -> EarlyOut;
     /// Consume n elements of b
@@ -121,7 +126,6 @@ impl<'a, A, B> MergeStateRead for BoolOpMergeState<'a, A, B> {
 }
 
 impl<'a, A, B> MergeStateMut for BoolOpMergeState<'a, A, B> {
-
     fn advance_a(&mut self, n: usize, take: bool) -> EarlyOut {
         if take {
             self.r = true;

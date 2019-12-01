@@ -1,5 +1,4 @@
 #[cfg(test)]
-#[macro_use]
 extern crate quickcheck;
 
 #[cfg(test)]
@@ -13,9 +12,14 @@ extern crate maplit;
 #[macro_use]
 mod test_macros;
 
-mod small_vec_builder;
+#[allow(dead_code)]
 mod binary_merge;
+
+#[allow(dead_code)]
 mod merge_state;
+
+#[allow(dead_code)]
+mod small_vec_builder;
 
 mod iterators;
 
