@@ -30,23 +30,6 @@ impl<A: Array, B: Array> InPlaceMergeState<A, B> {
     }
 }
 
-impl<A: Array> InPlaceMergeState<A, A> {
-    pub fn advance_a(&mut self, n: usize, take: bool) -> EarlyOut {
-        self.a.consume(n, take);
-        Some(())
-    }
-    pub fn advance_b(&mut self, n: usize, take: bool) -> EarlyOut {
-        if take {
-            self.a.extend_from_iter(&mut self.b, n);
-        } else {
-            for _ in 0..n {
-                let _ = self.b.next();
-            }
-        }
-        Some(())
-    }
-}
-
 impl<A: Array, B: Array> MergeStateRead for InPlaceMergeState<A, B> {
     type A = A::Item;
     type B = B::Item;
@@ -60,10 +43,18 @@ impl<A: Array, B: Array> MergeStateRead for InPlaceMergeState<A, B> {
 
 impl<A: Array> MergeStateMut for InPlaceMergeState<A, A> {
     fn advance_a(&mut self, n: usize, take: bool) -> EarlyOut {
-        InPlaceMergeState::<A, A>::advance_a(self, n, take)
+        self.a.consume(n, take);
+        Some(())
     }
     fn advance_b(&mut self, n: usize, take: bool) -> EarlyOut {
-        InPlaceMergeState::<A, A>::advance_b(self, n, take)
+        if take {
+            self.a.extend_from_iter(&mut self.b, n);
+        } else {
+            for _ in 0..n {
+                let _ = self.b.next();
+            }
+        }
+        Some(())
     }
 }
 
@@ -108,26 +99,6 @@ impl<'a, A, B> BoolOpMergeState<'a, A, B> {
     pub fn result(self) -> bool {
         self.r
     }
-    
-    pub fn advance_a(&mut self, n: usize, take: bool) -> EarlyOut {
-        if take {
-            self.r = true;
-            None
-        } else {
-            self.a.drop_front(n);
-            Some(())
-        }
-    }
-
-    pub fn advance_b(&mut self, n: usize, take: bool) -> EarlyOut {
-        if take {
-            self.r = true;
-            None
-        } else {
-            self.b.drop_front(n);
-            Some(())
-        }
-    }
 }
 
 impl<'a, A, B> BoolOpMergeState<'a, A, B> {
@@ -150,11 +121,25 @@ impl<'a, A, B> MergeStateRead for BoolOpMergeState<'a, A, B> {
 }
 
 impl<'a, A, B> MergeStateMut for BoolOpMergeState<'a, A, B> {
+
     fn advance_a(&mut self, n: usize, take: bool) -> EarlyOut {
-        BoolOpMergeState::advance_a(self, n, take)
+        if take {
+            self.r = true;
+            None
+        } else {
+            self.a.drop_front(n);
+            Some(())
+        }
     }
+
     fn advance_b(&mut self, n: usize, take: bool) -> EarlyOut {
-        BoolOpMergeState::advance_b(self, n, take)
+        if take {
+            self.r = true;
+            None
+        } else {
+            self.b.drop_front(n);
+            Some(())
+        }
     }
 }
 
@@ -192,32 +177,6 @@ impl<'a, A, B, Arr: Array> SmallVecMergeState<'a, A, B, Arr> {
     }
 }
 
-impl<'a, T: Clone, Arr: Array<Item = T>> SmallVecMergeState<'a, T, T, Arr> {
-    pub fn advance_a(&mut self, n: usize, take: bool) -> EarlyOut {
-        if take {
-            self.r.reserve(n);
-            for e in self.a.take_front(n).iter() {
-                self.r.push(e.clone())
-            }
-        } else {
-            self.a.drop_front(n);
-        }
-        Some(())
-    }
-
-    pub fn advance_b(&mut self, n: usize, take: bool) -> EarlyOut {
-        if take {
-            self.r.reserve(n);
-            for e in self.b.take_front(n).iter() {
-                self.r.push(e.clone())
-            }
-        } else {
-            self.b.drop_front(n);
-        }
-        Some(())
-    }
-}
-
 impl<'a, A, B, Arr: Array> MergeStateRead for SmallVecMergeState<'a, A, B, Arr> {
     type A = A;
     type B = B;
@@ -231,9 +190,26 @@ impl<'a, A, B, Arr: Array> MergeStateRead for SmallVecMergeState<'a, A, B, Arr> 
 
 impl<'a, T: Clone, Arr: Array<Item = T>> MergeStateMut for SmallVecMergeState<'a, T, T, Arr> {
     fn advance_a(&mut self, n: usize, take: bool) -> EarlyOut {
-        SmallVecMergeState::advance_a(self, n, take)
+        if take {
+            self.r.reserve(n);
+            for e in self.a.take_front(n).iter() {
+                self.r.push(e.clone())
+            }
+        } else {
+            self.a.drop_front(n);
+        }
+        Some(())
     }
+
     fn advance_b(&mut self, n: usize, take: bool) -> EarlyOut {
-        SmallVecMergeState::advance_b(self, n, take)
+        if take {
+            self.r.reserve(n);
+            for e in self.b.take_front(n).iter() {
+                self.r.push(e.clone())
+            }
+        } else {
+            self.b.drop_front(n);
+        }
+        Some(())
     }
 }

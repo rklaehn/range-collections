@@ -72,7 +72,7 @@
 //!
 //! [binary merge]: http://blog.klaehn.org
 use crate::binary_merge::{EarlyOut, MergeStateRead, MergeOperation};
-use crate::merge_state::{InPlaceMergeState, SmallVecMergeState, BoolOpMergeState};
+use crate::merge_state::{MergeStateMut, InPlaceMergeState, SmallVecMergeState, BoolOpMergeState};
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::ops::Bound::*;
@@ -332,7 +332,7 @@ fn is_odd(x: usize) -> bool {
     (x & 1) != 0
 }
 
-trait MergeStateMut: MergeStateRead {
+trait RMergeStateMut: MergeStateRead {
     fn advance_both(&mut self, copy: bool) -> EarlyOut;
     fn advance_a(&mut self, n: usize, copy: bool) -> EarlyOut;
     fn advance_b(&mut self, n: usize, copy: bool) -> EarlyOut;
@@ -362,7 +362,7 @@ impl<'a, T> RangeSetBoolOpMergeState<'a, T> {
     }
 }
 
-impl<'a, T> MergeStateMut for RangeSetBoolOpMergeState<'a, T> {
+impl<'a, T> RMergeStateMut for RangeSetBoolOpMergeState<'a, T> {
     fn advance_both(&mut self, copy: bool) -> EarlyOut {
         self.advance_a(1, copy)?;
         self.advance_b(1, false)
@@ -416,7 +416,7 @@ impl<'a, T: Clone, A: Array<Item=T>> VecMergeState<'a, T, A> {
     }
 }
 
-impl<'a, T: Clone, A: Array<Item=T>> MergeStateMut for VecMergeState<'a, T, A> {
+impl<'a, T: Clone, A: Array<Item=T>> RMergeStateMut for VecMergeState<'a, T, A> {
     fn advance_both(&mut self, copy: bool) -> EarlyOut {
         self.advance_a(1, copy);
         self.advance_b(1, false);
@@ -488,7 +488,7 @@ impl<'a, T, A: Array<Item = T>> MergeStateRead for InPlaceMergeState2<A> {
     }
 }
 
-impl<'a, T, A: Array<Item = T>> MergeStateMut for InPlaceMergeState2<A> {
+impl<'a, T, A: Array<Item = T>> RMergeStateMut for InPlaceMergeState2<A> {
     fn advance_both(&mut self, copy: bool) -> EarlyOut {
         self.advance_a(1, copy);
         self.advance_b(1, false);
@@ -515,7 +515,7 @@ struct IntersectionOp;
 struct XorOp;
 struct DiffOp;
 
-impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for UnionOp {
+impl<'a, T: Ord, M: RMergeStateMut<A = T, B = T>> MergeOperation<M> for UnionOp {
     fn from_a(&self, m: &mut M, n: usize) -> EarlyOut {
         m.advance_a(n, !m.bc())
     }
@@ -530,7 +530,7 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for UnionOp {
     }
 }
 
-impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for IntersectionOp {
+impl<'a, T: Ord, M: RMergeStateMut<A = T, B = T>> MergeOperation<M> for IntersectionOp {
     fn from_a(&self, m: &mut M, n: usize) -> EarlyOut {
         m.advance_a(n, m.bc())
     }
@@ -545,7 +545,7 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for Intersect
     }
 }
 
-impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for DiffOp {
+impl<'a, T: Ord, M: RMergeStateMut<A = T, B = T>> MergeOperation<M> for DiffOp {
     fn from_a(&self, m: &mut M, n: usize) -> EarlyOut {
         m.advance_a(n, !m.bc())
     }
@@ -560,7 +560,7 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for DiffOp {
     }
 }
 
-impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for XorOp {
+impl<'a, T: Ord, M: RMergeStateMut<A = T, B = T>> MergeOperation<M> for XorOp {
     fn from_a(&self, m: &mut M, n: usize) -> EarlyOut {
         m.advance_a(n, true)
     }
