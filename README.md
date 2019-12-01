@@ -10,4 +10,4 @@
 
 # About
 
-Todo
+See the [docs](https://docs.rs/range-collections).
