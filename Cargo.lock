@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "range-collections"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "criterion 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-traits 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",

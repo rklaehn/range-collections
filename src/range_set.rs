@@ -1,73 +1,6 @@
-//! # About
-//!
+#![deny(missing_docs)]
+
 //! A set of non-overlapping ranges
-//!
-//! ```
-//! # use range_collections::RangeSet;
-//! let mut a: RangeSet<i32> = RangeSet::from(10..);
-//! let b: RangeSet<i32> = RangeSet::from(1..5);
-//!
-//! a |= b;
-//! let r = !a;
-//! ```
-//!
-//! A data structure to represent a set of non-overlapping ranges of element type `T: Ord`. It uses a `SmallVec<T>`
-//! of sorted boundaries internally.
-//!
-//! It can represent not just finite ranges but also half-open and open ranges. Because it can represent infinite
-//! ranges, it can also represent the set of all elements, and therefore all boolean operations including negation.
-//!
-//! It does not put any constraints on the element type for requriring an `Ord` instance. However, since it internally
-//! uses an encoding similar to [std::ops::Range](https://doc.rust-lang.org/std/ops/struct.Range.html) with upper excluded
-//! ranges, it can only represent single values for types that have a defined successor, such as integers. Adjacent ranges
-//! will be merged.
-//!
-//! It provides very fast operations for set operations (&, |, ^) as well as for intersection tests (is_disjoint, is_subset).
-//!
-//! In addition to the fast set operations that produce a new range set, it also supports the equivalent in-place operations.
-//!
-//! # Complexity
-//!
-//! Complexity is given separately for the number of comparisons and the number of copies, since sometimes you have
-//! a comparison operation that is basically free (any of the primitive types), whereas sometimes you have a comparison
-//! operation that is many orders of magnitude more expensive than a copy (long strings, arbitrary precision integers, ...)
-//!
-//! ## Number of comparisons
-//!
-//! |operation    | best      | worst     | remark
-//! |-------------|-----------|-----------|--------
-//! |negation     | 1         | 1         |
-//! |union        | O(log(N)) | O(N)      | binary merge
-//! |intersection | O(log(N)) | O(N)      | binary merge
-//! |difference   | O(log(N)) | O(N)      | binary merge
-//! |xor          | O(log(N)) | O(N)      | binary merge
-//! |membership   | O(log(N)) | O(log(N)) | binary search
-//! |is_disjoint  | O(log(N)) | O(N)      | binary merge with cutoff
-//! |is_subset    | O(log(N)) | O(N)      | binary merge with cutoff
-//!
-//! ## Number of copies
-//!
-//! For creating new sets, obviously there needs to be at least one copy for each element of the result set, so the
-//! complexity is always O(N). For in-place operations it gets more interesting. In case the number of elements of
-//! the result being identical to the number of existing elements, there will be no copies and no allocations.
-//!
-//! E.g. if the result just has some of the ranges of the left hand side extended or truncated, but the same number of boundaries,
-//! there will be no allocations and no copies except for the changed boundaries themselves.
-//!
-//! If the result has fewer boundaries than then lhs, there will be some copying but no allocations. Only if the result
-//! is larger than the capacity of the underlying vector of the lhs will there be allocations.
-//!
-//! |operation    | best      | worst     |
-//! |-------------|-----------|-----------|
-//! |negation     | 1         | 1         |
-//! |union        | 1         | O(N)      |
-//! |intersection | 1         | O(N)      |
-//! |difference   | 1         | O(N)      |
-//! |xor          | 1         | O(N)      |
-//!
-//! # Testing
-//!
-//! Testing is done by some simple smoke tests as well as quickcheck tests of the algebraic properties of the boolean operations.
 use crate::binary_merge::{EarlyOut, MergeOperation, MergeStateRead};
 use crate::merge_state::{BoolOpMergeState, InPlaceMergeState, MergeStateMut, SmallVecMergeState};
 use smallvec::{Array, SmallVec};
@@ -80,6 +13,71 @@ use std::ops::{
     Sub, SubAssign,
 };
 
+/// # A set of non-overlapping ranges
+///
+/// ```
+/// # use range_collections::RangeSet;
+/// let mut a: RangeSet<i32> = RangeSet::from(10..);
+/// let b: RangeSet<i32> = RangeSet::from(1..5);
+///
+/// a |= b;
+/// let r = !a;
+/// ```
+///
+/// A data structure to represent a set of non-overlapping ranges of element type `T: Ord`. It uses a `SmallVec<T>`
+/// of sorted boundaries internally.
+///
+/// It can represent not just finite ranges but also half-open and open ranges. Because it can represent infinite
+/// ranges, it can also represent the set of all elements, and therefore all boolean operations including negation.
+///
+/// It does not put any constraints on the element type for requriring an `Ord` instance. Adjacent ranges will be merged.
+///
+/// It provides very fast operations for set operations (&, |, ^) as well as for intersection tests (is_disjoint, is_subset).
+///
+/// In addition to the fast set operations that produce a new range set, it also supports the equivalent in-place operations.
+///
+/// # Complexity
+///
+/// Complexity is given separately for the number of comparisons and the number of copies, since sometimes you have
+/// a comparison operation that is basically free (any of the primitive types), whereas sometimes you have a comparison
+/// operation that is many orders of magnitude more expensive than a copy (long strings, arbitrary precision integers, ...)
+///
+/// ## Number of comparisons
+///
+/// |operation    | best      | worst     | remark
+/// |-------------|-----------|-----------|--------
+/// |negation     | 1         | 1         |
+/// |union        | O(log(N)) | O(N)      | binary merge
+/// |intersection | O(log(N)) | O(N)      | binary merge
+/// |difference   | O(log(N)) | O(N)      | binary merge
+/// |xor          | O(log(N)) | O(N)      | binary merge
+/// |membership   | O(log(N)) | O(log(N)) | binary search
+/// |is_disjoint  | O(log(N)) | O(N)      | binary merge with cutoff
+/// |is_subset    | O(log(N)) | O(N)      | binary merge with cutoff
+///
+/// ## Number of copies
+///
+/// For creating new sets, obviously there needs to be at least one copy for each element of the result set, so the
+/// complexity is always O(N). For in-place operations it gets more interesting. In case the number of elements of
+/// the result being identical to the number of existing elements, there will be no copies and no allocations.
+///
+/// E.g. if the result just has some of the ranges of the left hand side extended or truncated, but the same number of boundaries,
+/// there will be no allocations and no copies except for the changed boundaries themselves.
+///
+/// If the result has fewer boundaries than then lhs, there will be some copying but no allocations. Only if the result
+/// is larger than the capacity of the underlying vector of the lhs will there be allocations.
+///
+/// |operation    | best      | worst     |
+/// |-------------|-----------|-----------|
+/// |negation     | 1         | 1         |
+/// |union        | 1         | O(N)      |
+/// |intersection | 1         | O(N)      |
+/// |difference   | 1         | O(N)      |
+/// |xor          | 1         | O(N)      |
+///
+/// # Testing
+///
+/// Testing is done by some simple smoke tests as well as quickcheck tests of the algebraic properties of the boolean operations.
 #[derive(Clone, PartialEq, Eq)]
 pub struct RangeSet<T, A: Array<Item = T> = [T; 2]> {
     below_all: bool,
@@ -105,6 +103,7 @@ impl<T: Debug, A: Array<Item = T>> Debug for RangeSet<T, A> {
     }
 }
 
+/// Iterator for the ranges in a range set
 pub struct Iter<'a, T>(bool, &'a [T]);
 
 impl<'a, T> Iterator for Iter<'a, T> {
@@ -143,7 +142,8 @@ impl<T, A: Array<Item = T>> RangeSet<T, A> {
             boundaries,
         }
     }
-    fn iter(&self) -> Iter<T> {
+    /// iterate over all ranges in this range set
+    pub fn iter(&self) -> Iter<T> {
         Iter(self.below_all, self.boundaries.as_slice())
     }
     fn from_range_until(a: T) -> Self {
@@ -156,23 +156,35 @@ impl<T, A: Array<Item = T>> RangeSet<T, A> {
         t.push(a);
         Self::new(false, t)
     }
+    /// boundaries in this range set
     pub fn boundaries(&self) -> &SmallVec<A> {
         &self.boundaries
     }
+    /// the empty range set
     pub fn empty() -> Self {
-        Self::new(false, SmallVec::new())
+        false.into()
     }
+    /// a range set containing all values
     pub fn all() -> Self {
-        Self::new(true, SmallVec::new())
+        true.into()
     }
+    /// a range set with a constant value everywhere
     pub fn constant(value: bool) -> Self {
-        Self::new(value, SmallVec::new())
+        value.into()
     }
+    /// true if the range set is empty
     pub fn is_empty(&self) -> bool {
         !self.below_all && self.boundaries.is_empty()
     }
+    /// true if the range set contains all values
     pub fn is_all(&self) -> bool {
         self.below_all && self.boundaries.is_empty()
+    }
+}
+
+impl<T, A: Array<Item = T>> From<bool> for RangeSet<T, A> {
+    fn from(value: bool) -> Self {
+        Self::new(value, SmallVec::new())
     }
 }
 
@@ -188,6 +200,7 @@ impl<T: Ord, A: Array<Item = T>> RangeSet<T, A> {
         }
     }
 
+    /// true if this range set is disjoint from another range set
     pub fn is_disjoint(&self, that: &Self) -> bool {
         !RangeSetBoolOpMergeState::merge(
             self.below_all,
@@ -198,6 +211,9 @@ impl<T: Ord, A: Array<Item = T>> RangeSet<T, A> {
         )
     }
 
+    /// true if this range set is a superset of another range set
+    ///
+    /// A range set is considered to be a superset of itself
     pub fn is_superset(&self, that: &Self) -> bool {
         !RangeSetBoolOpMergeState::merge(
             that.below_all,
@@ -208,6 +224,9 @@ impl<T: Ord, A: Array<Item = T>> RangeSet<T, A> {
         )
     }
 
+    /// true if this range set is a subset of another range set
+    ///
+    /// A range set is considered to be a subset of itself
     pub fn is_subset(&self, that: &Self) -> bool {
         !RangeSetBoolOpMergeState::merge(
             self.below_all,
@@ -218,6 +237,7 @@ impl<T: Ord, A: Array<Item = T>> RangeSet<T, A> {
         )
     }
 
+    /// true if the value is contained in the range set
     pub fn contains(&self, value: &T) -> bool {
         match self.boundaries.binary_search(value) {
             Ok(index) => self.below_all ^ !is_odd(index),
@@ -244,6 +264,9 @@ impl<T: Ord, A: Array<Item = T>> From<RangeTo<T>> for RangeSet<T, A> {
     }
 }
 
+/// compute the intersection of this range set with another, producing a new range set
+///
+/// &forall; t &isin; T, r(t) = a(t) & b(t)
 impl<T: Ord + Clone, A: Array<Item = T>> BitAnd for &RangeSet<T, A> {
     type Output = RangeSet<T, A>;
     fn bitand(self, that: Self) -> Self::Output {
@@ -281,6 +304,9 @@ impl<T: Ord, A: Array<Item = T>> BitAndAssign for RangeSet<T, A> {
 //     }
 // }
 
+/// compute the union of this range set with another, producing a new range set
+///
+/// &forall; t &isin; T, r(t) = a(t) | b(t)
 impl<T: Ord + Clone, A: Array<Item = T>> BitOr for &RangeSet<T, A> {
     type Output = RangeSet<T, A>;
     fn bitor(self, that: Self) -> Self::Output {
@@ -318,6 +344,9 @@ impl<T: Ord, A: Array<Item = T>> BitOrAssign for RangeSet<T, A> {
 //     }
 // }
 
+/// compute the exclusive or of this range set with another, producing a new range set
+///
+/// &forall; t &isin; T, r(t) = a(t) ^ b(t)
 impl<T: Ord + Clone, A: Array<Item = T>> BitXor for &RangeSet<T, A> {
     type Output = RangeSet<T, A>;
     fn bitxor(self, that: Self) -> Self::Output {
@@ -355,6 +384,9 @@ impl<T: Ord, A: Array<Item = T>> BitXorAssign for RangeSet<T, A> {
 //     }
 // }
 
+/// compute the difference of this range set with another, producing a new range set
+///
+/// &forall; t &isin; T, r(t) = a(t) & !b(t)
 impl<T: Ord + Clone, A: Array<Item = T>> Sub for &RangeSet<T, A> {
     type Output = RangeSet<T, A>;
     fn sub(self, that: Self) -> Self::Output {
@@ -392,6 +424,9 @@ impl<T: Ord, A: Array<Item = T>> SubAssign for RangeSet<T, A> {
 //     }
 // }
 
+/// compute the negation of this range set
+///
+/// &forall; t &isin; T, r(t) = !a(t)
 impl<T: Ord + Clone, A: Array<Item = T>> Not for RangeSet<T, A> {
     type Output = RangeSet<T, A>;
     fn not(self) -> Self::Output {
@@ -399,6 +434,9 @@ impl<T: Ord + Clone, A: Array<Item = T>> Not for RangeSet<T, A> {
     }
 }
 
+/// compute the negation of this range set
+///
+/// &forall; t &isin; T, r(t) = !a(t)
 impl<T: Ord + Clone, A: Array<Item = T>> Not for &RangeSet<T, A> {
     type Output = RangeSet<T, A>;
     fn not(self) -> Self::Output {
