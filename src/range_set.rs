@@ -156,6 +156,9 @@ impl<T, A: Array<Item = T>> RangeSet<T, A> {
         t.push(a);
         Self::new(false, t)
     }
+    pub fn boundaries(&self) -> &SmallVec<A> {
+        &self.boundaries
+    }
     pub fn empty() -> Self {
         Self::new(false, SmallVec::new())
     }
@@ -270,6 +273,14 @@ impl<T: Ord, A: Array<Item = T>> BitAndAssign for RangeSet<T, A> {
     }
 }
 
+// impl<T: Ord, A: Array<Item = T>> BitAnd for RangeSet<T, A> {
+//     type Output = Self;
+//     fn bitand(mut self, that: Self) -> Self::Output {
+//         self &= that;
+//         self
+//     }
+// }
+
 impl<T: Ord + Clone, A: Array<Item = T>> BitOr for &RangeSet<T, A> {
     type Output = RangeSet<T, A>;
     fn bitor(self, that: Self) -> Self::Output {
@@ -298,6 +309,14 @@ impl<T: Ord, A: Array<Item = T>> BitOrAssign for RangeSet<T, A> {
         self.below_all |= that.below_all;
     }
 }
+
+// impl<T: Ord, A: Array<Item = T>> BitOr for RangeSet<T, A> {
+//     type Output = Self;
+//     fn bitor(mut self, that: Self) -> Self::Output {
+//         self |= that;
+//         self
+//     }
+// }
 
 impl<T: Ord + Clone, A: Array<Item = T>> BitXor for &RangeSet<T, A> {
     type Output = RangeSet<T, A>;
@@ -328,6 +347,14 @@ impl<T: Ord, A: Array<Item = T>> BitXorAssign for RangeSet<T, A> {
     }
 }
 
+// impl<T: Ord, A: Array<Item = T>> BitXor for RangeSet<T, A> {
+//     type Output = Self;
+//     fn bitxor(mut self, that: Self) -> Self::Output {
+//         self ^= that;
+//         self
+//     }
+// }
+
 impl<T: Ord + Clone, A: Array<Item = T>> Sub for &RangeSet<T, A> {
     type Output = RangeSet<T, A>;
     fn sub(self, that: Self) -> Self::Output {
@@ -356,6 +383,14 @@ impl<T: Ord, A: Array<Item = T>> SubAssign for RangeSet<T, A> {
         self.below_all &= !that.below_all;
     }
 }
+
+// impl<T: Ord, A: Array<Item = T>> Sub for RangeSet<T, A> {
+//     type Output = Self;
+//     fn sub(mut self, that: Self) -> Self::Output {
+//         self -= that;
+//         self
+//     }
+// }
 
 impl<T: Ord + Clone, A: Array<Item = T>> Not for RangeSet<T, A> {
     type Output = RangeSet<T, A>;
@@ -676,14 +711,14 @@ mod tests {
         let y: Test = Test::from(..10);
         let z: Test = Test::from(20..);
 
-        let r: Test = x.bitor(&z);
+        let r: Test = (&x).bitor(&z);
 
         println!("{:?} {:?} {:?} {:?}", x, y, z, r);
 
-        let r2: Test = x.bitand(&y);
-        let r3: Test = x.bitxor(&y);
-        let r4 = y.is_disjoint(&z);
-        let r5 = y.bitand(&z);
+        let r2: Test = (&x).bitand(&y);
+        let r3: Test = (&x).bitxor(&y);
+        let r4 = (&y).is_disjoint(&z);
+        let r5 = (&y).bitand(&z);
 
         println!("{:?}", r2);
         println!("{:?}", r3);

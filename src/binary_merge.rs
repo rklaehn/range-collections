@@ -34,20 +34,6 @@ pub(crate) trait MergeOperation<M: MergeStateRead> {
     fn from_b(&self, m: &mut M, n: usize) -> EarlyOut;
     fn collision(&self, m: &mut M) -> EarlyOut;
     fn cmp(&self, a: &M::A, b: &M::B) -> Ordering;
-    // fn mergec(&self, m: &mut M, an: usize, bn: usize) -> EarlyOut {
-    //     if an == 0 {
-    //         if bn > 0 {
-    //             self.from_b(m, bn)?;
-    //         }
-    //     } else if bn == 0 {
-    //         if an > 0 {
-    //             self.from_a(m, an)?;
-    //         }
-    //     } else {
-    //         self.merge0(m, an, bn)?;
-    //     }
-    //     Some(())
-    // }
     /// merge `an` elements from a and `bn` elements from b into the result
     fn merge0(&self, m: &mut M, an: usize, bn: usize) -> EarlyOut {
         if an == 0 {
@@ -86,7 +72,30 @@ pub(crate) trait MergeOperation<M: MergeStateRead> {
         }
         Some(())
     }
+    fn tape_merge(&self, m: &mut M) -> EarlyOut {
+        while let (Some(a), Some(b)) = (m.a_slice().first(), m.b_slice().first()) {
+            match self.cmp(a, b) {
+                Ordering::Greater => {
+                    self.from_b(m, 1)?;
+                }
+                Ordering::Less => {
+                    self.from_a(m, 1)?;
+                }
+                Ordering::Equal => {
+                    self.collision(m)?;
+                }
+            }
+        }
+        while let Some(_) = m.a_slice().first() {
+            self.from_a(m, 1)?;
+        }
+        while let Some(_) = m.b_slice().first() {
+            self.from_b(m, 1)?;
+        }
+        Some(())
+    }
     fn merge(&self, m: &mut M) {
+        // self.tape_merge(m);
         let a1 = m.a_slice().len();
         let b1 = m.b_slice().len();
         self.merge0(m, a1, b1);

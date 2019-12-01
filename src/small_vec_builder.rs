@@ -177,7 +177,9 @@ impl<A: Array> InPlaceSmallVecBuilder<A> {
         // drop the source part
         self.drop_source();
         // tear out the v
-        let v = std::mem::replace(&mut self.v, unsafe { std::mem::uninitialized() });
+        let v = std::mem::replace(&mut self.v, unsafe {
+            std::mem::MaybeUninit::uninit().assume_init()
+        });
         // forget the rest to prevent drop to run on uninitialized data
         std::mem::forget(self);
         v
