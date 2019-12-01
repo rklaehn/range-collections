@@ -6,14 +6,8 @@ extern crate quickcheck;
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
 
-#[macro_use]
-extern crate serde;
-
 #[cfg(test)]
 extern crate maplit;
-
-extern crate sorted_iter;
-pub use sorted_iter::{SortedIterator, SortedPairIterator};
 
 #[cfg(test)]
 #[macro_use]

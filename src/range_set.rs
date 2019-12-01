@@ -72,7 +72,7 @@
 //!
 //! [binary merge]: http://blog.klaehn.org
 use crate::binary_merge::{EarlyOut, MergeStateRead, MergeOperation};
-use crate::small_vec_builder::{InPlaceSmallVecBuilder, SmallVecIntoIter};
+use crate::merge_state::{InPlaceMergeState, SmallVecMergeState, BoolOpMergeState};
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::ops::Bound::*;
@@ -80,9 +80,8 @@ use std::ops::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Range, RangeFrom, RangeTo,
     Sub, SubAssign,
 };
-use std::ops::{Bound, RangeBounds};
+use std::ops::Bound;
 use smallvec::{SmallVec, Array};
-use crate::iterators::SliceIterator;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct RangeSet<T, A: Array<Item = T> = [T; 2]> {
@@ -177,21 +176,6 @@ impl<T, A: Array<Item = T>> RangeSet<T, A> {
     }
 }
 
-impl<T: Ord + Clone> RangeSet<T> {
-    fn from_range_bounds<R: RangeBounds<T>>(r: R) -> std::result::Result<Self, ()> {
-        match (r.start_bound(), r.end_bound()) {
-            (Bound::Unbounded, Bound::Unbounded) => Ok(Self::all()),
-            (Bound::Unbounded, Bound::Excluded(b)) => Ok(Self::from_range_until(b.clone())),
-            (Bound::Included(a), Bound::Unbounded) => Ok(Self::from_range_from(a.clone())),
-            (Bound::Included(a), Bound::Excluded(b)) => Ok(Self::from_range(Range {
-                start: a.clone(),
-                end: b.clone(),
-            })),
-            _ => Err(()),
-        }
-    }
-}
-
 impl<T: Ord> RangeSet<T> {
     fn from_range(a: Range<T>) -> Self {
         if a.start < a.end {
@@ -205,11 +189,11 @@ impl<T: Ord> RangeSet<T> {
     }
 
     pub fn is_disjoint(&self, that: &Self) -> bool {
-        !BoolMergeState::merge(self, that, IntersectionOp)
+        !RangeSetBoolOpMergeState::merge(self, that, IntersectionOp)
     }
 
     pub fn is_subset(&self, that: &Self) -> bool {
-        !BoolMergeState::merge(&self, &that, DiffOp)
+        !RangeSetBoolOpMergeState::merge(&self, &that, DiffOp)
     }
 
     pub fn contains(&self, value: &T) -> bool {
@@ -250,7 +234,7 @@ impl<T: Ord + Clone> BitAnd for &RangeSet<T> {
 
 impl<T: Ord> BitAndAssign for RangeSet<T> {
     fn bitand_assign(&mut self, that: Self) {
-        InPlaceMergeState::merge(
+        InPlaceMergeState2::merge(
             &mut self.boundaries,
             self.below_all,
             that.boundaries,
@@ -273,7 +257,7 @@ impl<T: Ord + Clone> BitOr for &RangeSet<T> {
 
 impl<T: Ord> BitOrAssign for RangeSet<T> {
     fn bitor_assign(&mut self, that: Self) {
-        InPlaceMergeState::merge(
+        InPlaceMergeState2::merge(
             &mut self.boundaries,
             self.below_all,
             that.boundaries,
@@ -296,7 +280,7 @@ impl<T: Ord + Clone> BitXor for &RangeSet<T> {
 
 impl<T: Ord> BitXorAssign for RangeSet<T> {
     fn bitxor_assign(&mut self, that: Self) {
-        InPlaceMergeState::merge(
+        InPlaceMergeState2::merge(
             &mut self.boundaries,
             self.below_all,
             that.boundaries,
@@ -319,7 +303,7 @@ impl<T: Ord + Clone> Sub for &RangeSet<T> {
 
 impl<T: Ord> SubAssign for RangeSet<T> {
     fn sub_assign(&mut self, that: Self) {
-        InPlaceMergeState::merge(
+        InPlaceMergeState2::merge(
             &mut self.boundaries,
             self.below_all,
             that.boundaries,
@@ -356,58 +340,40 @@ trait MergeStateMut: MergeStateRead {
     fn bc(&self) -> bool;
 }
 
-struct BoolMergeState<'a, T> {
+struct RangeSetBoolOpMergeState<'a, T> {
+    inner: BoolOpMergeState<'a, T, T>,
     ac: bool,
-    a: &'a [T],
-
     bc: bool,
-    b: &'a [T],
-
-    r: bool,
 }
 
-impl<'a, T> BoolMergeState<'a, T> {
+impl<'a, T> RangeSetBoolOpMergeState<'a, T> {
     fn merge<O: MergeOperation<Self>>(
         a: &'a RangeSet<T>,
         b: &'a RangeSet<T>,
         o: O,
     ) -> bool {
-        let mut state = Self {
+        let mut state = RangeSetBoolOpMergeState {
+            inner: BoolOpMergeState::new(a.boundaries.as_slice(), b.boundaries.as_slice()),
             ac: a.below_all,
             bc: b.below_all,
-            a: a.boundaries.as_slice(),
-            b: b.boundaries.as_slice(),
-            r: false,
         };
         o.merge(&mut state);
-        state.r
+        state.inner.result()
     }
 }
 
-impl<'a, T> MergeStateMut for BoolMergeState<'a, T> {
+impl<'a, T> MergeStateMut for RangeSetBoolOpMergeState<'a, T> {
     fn advance_both(&mut self, copy: bool) -> EarlyOut {
         self.advance_a(1, copy)?;
         self.advance_b(1, false)
     }
     fn advance_a(&mut self, n: usize, copy: bool) -> EarlyOut {
-        if copy {
-            self.r = true;
-            None
-        } else {
-            self.a = &self.a[n..];
-            self.ac ^= is_odd(n);
-            Some(())
-        }
+        self.ac ^= is_odd(n);
+        self.inner.advance_a(n, copy)
     }
     fn advance_b(&mut self, n: usize, copy: bool) -> EarlyOut {
-        if copy {
-            self.r = true;
-            None
-        } else {
-            self.b = &self.b[n..];
-            self.bc ^= is_odd(n);
-            Some(())
-        }
+        self.bc ^= is_odd(n);
+        self.inner.advance_b(n, copy)
     }
     fn ac(&self) -> bool {
         self.ac
@@ -417,25 +383,21 @@ impl<'a, T> MergeStateMut for BoolMergeState<'a, T> {
     }
 }
 
-impl<'a, T> MergeStateRead for BoolMergeState<'a, T> {
+impl<'a, T> MergeStateRead for RangeSetBoolOpMergeState<'a, T> {
     type A = T;
     type B = T;
     fn a_slice(&self) -> &[T] {
-        &self.a
+        &self.inner.a_slice()
     }
     fn b_slice(&self) -> &[T] {
-        &self.b
+        &self.inner.b_slice()
     }
 }
 
 struct VecMergeState<'a, T, A: Array> {
-    pub a: SliceIterator<'a, T>,
-    pub b: SliceIterator<'a, T>,
-
+    inner: SmallVecMergeState<'a, T, T, A>,
     ac: bool,
     bc: bool,
-
-    r: SmallVec<A>,
 }
 
 impl<'a, T: Clone, A: Array<Item=T>> VecMergeState<'a, T, A> {
@@ -447,12 +409,10 @@ impl<'a, T: Clone, A: Array<Item=T>> VecMergeState<'a, T, A> {
         let mut state = Self {
             ac: a.below_all,
             bc: b.below_all,
-            a: SliceIterator(a.boundaries.as_slice()),
-            b: SliceIterator(b.boundaries.as_slice()),
-            r: SmallVec::new(),
+            inner: SmallVecMergeState::new(a.boundaries.as_slice(), b.boundaries.as_slice(), SmallVec::new()),
         };
         o.merge(&mut state);
-        state.r
+        state.inner.result()
     }
 }
 
@@ -463,28 +423,12 @@ impl<'a, T: Clone, A: Array<Item=T>> MergeStateMut for VecMergeState<'a, T, A> {
         Some(())
     }
     fn advance_a(&mut self, n: usize, copy: bool) -> EarlyOut {
-        if copy {
-            self.r.reserve(n);
-            for e in self.a.take_front(n).iter() {
-                self.r.push(e.clone())
-            }
-        } else {
-            self.a.drop_front(n);
-        }
         self.ac ^= is_odd(n);
-        Some(())
+        self.inner.advance_a(n, copy)
     }
     fn advance_b(&mut self, n: usize, copy: bool) -> EarlyOut {
-        if copy {
-            self.r.reserve(n);
-            for e in self.b.take_front(n).iter() {
-                self.r.push(e.clone())
-            }
-        } else {
-            self.b.drop_front(n);
-        }
         self.bc ^= is_odd(n);
-        Some(())
+        self.inner.advance_b(n, copy)
     }
     fn ac(&self) -> bool {
         self.ac
@@ -499,22 +443,21 @@ impl<'a, T, A: Array<Item=T>> MergeStateRead for VecMergeState<'a, T, A> {
     type B = T;
     /// The remaining data in a
     fn a_slice(&self) -> &[T] {
-        &self.a.0
+        &self.inner.a_slice()
     }
     /// The remaining data in b
     fn b_slice(&self) -> &[T] {
-        &self.b.0
+        &self.inner.b_slice()
     }
 }
 
-struct InPlaceMergeState<T, A: Array<Item = T>> {
-    a: InPlaceSmallVecBuilder<A>,
-    b: SmallVecIntoIter<A>,
+struct InPlaceMergeState2<A: Array> {
+    inner: InPlaceMergeState<A, A>,
     ac: bool,
     bc: bool,
 }
 
-impl<T, A: Array<Item = T>> InPlaceMergeState<T, A> {
+impl<T, A: Array<Item = T>> InPlaceMergeState2<A> {
     pub fn merge<O: MergeOperation<Self>>(
         a: &mut SmallVec<A>,
         a0: bool,
@@ -525,48 +468,39 @@ impl<T, A: Array<Item = T>> InPlaceMergeState<T, A> {
         let mut t: SmallVec<A> = Default::default();
         std::mem::swap(a, &mut t);
         let mut state = Self {
-            a: t.into(),
+            inner: InPlaceMergeState::new(t, b),
             ac: a0,
-            b: SmallVecIntoIter::new(b),
             bc: b0,
         };
         o.merge(&mut state);
-        *a = state.a.into_vec();
+        *a = state.inner.result();
     }
 }
 
-impl<'a, T, A: Array<Item = T>> MergeStateRead for InPlaceMergeState<T, A> {
+impl<'a, T, A: Array<Item = T>> MergeStateRead for InPlaceMergeState2<A> {
     type A = T;
     type B = T;
     fn a_slice(&self) -> &[T] {
-        self.a.source_slice()
+        self.inner.a_slice()
     }
     fn b_slice(&self) -> &[T] {
-        self.b.as_slice()
+        self.inner.b_slice()
     }
 }
 
-impl<'a, T, A: Array<Item = T>> MergeStateMut for InPlaceMergeState<T, A> {
+impl<'a, T, A: Array<Item = T>> MergeStateMut for InPlaceMergeState2<A> {
     fn advance_both(&mut self, copy: bool) -> EarlyOut {
         self.advance_a(1, copy);
         self.advance_b(1, false);
         Some(())
     }
     fn advance_a(&mut self, n: usize, copy: bool) -> EarlyOut {
-        self.a.consume(n, copy);
         self.ac ^= is_odd(n);
-        Some(())
+        self.inner.advance_a(n, copy)
     }
     fn advance_b(&mut self, n: usize, copy: bool) -> EarlyOut {
-        if copy {
-            self.a.extend_from_iter(&mut self.b, n);
-        } else {
-            for _ in 0..n {
-                let _ = self.b.next();
-            }
-        }
         self.bc ^= is_odd(n);
-        Some(())
+        self.inner.advance_b(n, copy)
     }
     fn ac(&self) -> bool {
         self.ac
@@ -648,6 +582,22 @@ mod tests {
     use num_traits::PrimInt;
     use quickcheck::*;
     use std::collections::BTreeSet;
+    use std::ops::RangeBounds;
+
+    impl<T: Ord + Clone> RangeSet<T> {
+        fn from_range_bounds<R: RangeBounds<T>>(r: R) -> std::result::Result<Self, ()> {
+            match (r.start_bound(), r.end_bound()) {
+                (Bound::Unbounded, Bound::Unbounded) => Ok(Self::all()),
+                (Bound::Unbounded, Bound::Excluded(b)) => Ok(Self::from_range_until(b.clone())),
+                (Bound::Included(a), Bound::Unbounded) => Ok(Self::from_range_from(a.clone())),
+                (Bound::Included(a), Bound::Excluded(b)) => Ok(Self::from_range(Range {
+                    start: a.clone(),
+                    end: b.clone(),
+                })),
+                _ => Err(()),
+            }
+        }
+    }
 
     impl<T: Arbitrary + Ord> Arbitrary for RangeSet<T> {
         fn arbitrary<G: Gen>(g: &mut G) -> Self {

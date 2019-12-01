@@ -1,27 +1,3 @@
-pub struct SortedIter<I> {
-    i: I,
-}
-
-impl<I> sorted_iter::sorted_iterator::SortedByItem for SortedIter<I> {}
-
-impl<I: Iterator> SortedIter<I> {
-    pub(crate) fn new(i: I) -> Self {
-        Self { i }
-    }
-}
-
-impl<I: Iterator> Iterator for SortedIter<I> {
-    type Item = I::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.i.next()
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.i.size_hint()
-    }
-}
-
 pub(crate) struct SliceIterator<'a, T>(pub &'a [T]);
 
 impl<'a, T> Iterator for SliceIterator<'a, T> {
