@@ -6,9 +6,6 @@ extern crate quickcheck;
 extern crate quickcheck_macros;
 
 #[cfg(test)]
-extern crate maplit;
-
-#[cfg(test)]
 #[macro_use]
 mod test_macros;
 
