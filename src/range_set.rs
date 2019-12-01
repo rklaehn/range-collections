@@ -3,7 +3,7 @@
 //! A set of non-overlapping ranges
 //!
 //! ```
-//! # use vec_collections::RangeSet;
+//! # use range_collections::RangeSet;
 //! let mut a: RangeSet<i32> = RangeSet::from(10..);
 //! let b: RangeSet<i32> = RangeSet::from(1..5);
 //!

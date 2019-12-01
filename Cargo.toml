@@ -1,11 +1,11 @@
 [package]
-name = "vec-collections"
+name = "range-collections"
 version = "0.1.1"
 authors = ["Rüdiger Klaehn <rklaehn@protonmail.com>"]
-description = "Rust collections that are newtype wrappers around vectors"
-repository = "https://github.com/rklaehn/vec-collections"
+description = "Sets and maps of ranges, backed by smallvec"
+repository = "https://github.com/rklaehn/range-collections"
 license = "MIT OR Apache-2.0"
-keywords = ["succinct", "vector", "array"]
+keywords = ["succinct", "array", "range", "smallvec"]
 categories = ["data-structures"]
 edition = "2018"
 readme = "README.md"

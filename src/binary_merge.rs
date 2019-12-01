@@ -26,7 +26,7 @@ pub(crate) type EarlyOut = Option<()>;
 /// It is often useful to keep the merge operation and the merge state separate. E.g. computing the
 /// intersection and checking if the intersection exists can be done with the same operation, but
 /// a different merge state. Likewise in-place operations and operations that produce a new entity
-/// can use the same merge operation. THerefore, the merge state is an additional parameter.SortedPairIter
+/// can use the same merge operation. THerefore, the merge state is an additional parameter.
 ///
 /// The operation itself will often be a zero size struct
 pub(crate) trait MergeOperation<M: MergeStateRead> {
@@ -34,15 +34,29 @@ pub(crate) trait MergeOperation<M: MergeStateRead> {
     fn from_b(&self, m: &mut M, n: usize) -> EarlyOut;
     fn collision(&self, m: &mut M) -> EarlyOut;
     fn cmp(&self, a: &M::A, b: &M::B) -> Ordering;
+    // fn mergec(&self, m: &mut M, an: usize, bn: usize) -> EarlyOut {
+    //     if an == 0 {
+    //         if bn > 0 {
+    //             self.from_b(m, bn)?;
+    //         }
+    //     } else if bn == 0 {
+    //         if an > 0 {
+    //             self.from_a(m, an)?;
+    //         }
+    //     } else {
+    //         self.merge0(m, an, bn)?;
+    //     }
+    //     Some(())
+    // }
     /// merge `an` elements from a and `bn` elements from b into the result
     fn merge0(&self, m: &mut M, an: usize, bn: usize) -> EarlyOut {
         if an == 0 {
             if bn > 0 {
-                self.from_b(m, bn)?
+                self.from_b(m, bn)?;
             }
         } else if bn == 0 {
             if an > 0 {
-                self.from_a(m, an)?
+                self.from_a(m, an)?;
             }
         } else {
             // neither a nor b are 0
