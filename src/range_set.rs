@@ -448,6 +448,7 @@ impl<T: Ord + Clone, A: Array<Item = T>> Not for &RangeSet<T, A> {
     }
 }
 
+#[inline]
 fn is_odd(x: usize) -> bool {
     (x & 1) != 0
 }

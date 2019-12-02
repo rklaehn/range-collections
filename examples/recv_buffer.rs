@@ -28,8 +28,20 @@ fn create_messages(n: usize, delay: usize) -> Vec<Range<usize>> {
     msgs
 }
 
+fn test(msgs: &Vec<Range<usize>>) -> RangeSet<usize> {
+    let mut buffer: RangeSet<usize> = RangeSet::from(..0);
+    for msg in msgs.iter().cloned() {
+        buffer |= RangeSet::from(msg);
+    }
+    buffer
+}
+
 fn main() {
     let msgs = create_messages(1000000, 5);
+    // do it a few times for a nice flamegraph
+    for _ in 0..100 {
+        test(&msgs);
+    }
 
     let mut buffer: RangeSet<usize> = RangeSet::from(..0);
     for (i, msg) in msgs.into_iter().enumerate() {
