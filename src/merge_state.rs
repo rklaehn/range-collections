@@ -47,10 +47,12 @@ impl<A: Array, B: Array> MergeStateRead for InPlaceMergeState<A, B> {
 }
 
 impl<A: Array> MergeStateMut for InPlaceMergeState<A, A> {
+    #[inline]
     fn advance_a(&mut self, n: usize, take: bool) -> EarlyOut {
         self.a.consume(n, take);
         Some(())
     }
+    #[inline]
     fn advance_b(&mut self, n: usize, take: bool) -> EarlyOut {
         if take {
             self.a.extend_from_iter(&mut self.b, n);

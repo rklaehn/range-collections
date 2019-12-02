@@ -56,6 +56,7 @@ impl<A: Array> InPlaceSmallVecBuilder<A> {
     }
 
     /// ensure that we have at least `capacity` space.
+    #[inline]
     fn reserve(&mut self, capacity: usize) {
         // ensure we have space!
         if self.t1 + capacity > self.s0 {
@@ -78,6 +79,7 @@ impl<A: Array> InPlaceSmallVecBuilder<A> {
     }
 
     /// Take at most `n` elements from `iter` to the target
+    #[inline]
     pub fn extend_from_iter<I: Iterator<Item = A::Item>>(&mut self, iter: &mut I, n: usize) {
         if n > 0 {
             self.reserve(n);
@@ -103,6 +105,7 @@ impl<A: Array> InPlaceSmallVecBuilder<A> {
 
     /// Consume `n` elements from the source. If `take` is true they will be added to the target,
     /// else they will be dropped.
+    #[inline]
     pub fn consume(&mut self, n: usize, take: bool) {
         let n = std::cmp::min(n, self.source_slice().len());
         let v = self.v.as_mut_ptr();
