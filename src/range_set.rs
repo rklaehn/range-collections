@@ -3,15 +3,15 @@
 //! A set of non-overlapping ranges
 use crate::binary_merge::{EarlyOut, MergeOperation, MergeStateRead};
 use crate::merge_state::{BoolOpMergeState, InPlaceMergeState, MergeStateMut, SmallVecMergeState};
-use smallvec::{Array, SmallVec};
-use std::cmp::Ordering;
-use std::fmt::Debug;
-use std::ops::Bound;
-use std::ops::Bound::*;
-use std::ops::{
+use core::cmp::Ordering;
+use core::fmt::Debug;
+use core::ops::Bound;
+use core::ops::Bound::*;
+use core::ops::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Range, RangeFrom, RangeTo,
     Sub, SubAssign,
 };
+use smallvec::{Array, SmallVec};
 
 /// # A set of non-overlapping ranges
 ///
@@ -27,8 +27,8 @@ use std::ops::{
 /// A data structure to represent a set of non-overlapping ranges of element type `T: Ord`. It uses a `SmallVec<T>`
 /// of sorted boundaries internally.
 ///
-/// It can represent not just finite ranges but also half-open and open ranges. Because it can represent infinite
-/// ranges, it can also represent the set of all elements, and therefore all boolean operations including negation.
+/// It can represent not just finite ranges but also ranges with unbounded start or end. Because it can represent
+/// infinite ranges, it can also represent the set of all elements, and therefore all boolean operations including negation.
 ///
 /// It does not put any constraints on the element type for requriring an `Ord` instance. Adjacent ranges will be merged.
 ///
@@ -159,6 +159,10 @@ impl<T, A: Array<Item = T>> RangeSet<T, A> {
     /// boundaries in this range set
     pub fn boundaries(&self) -> &SmallVec<A> {
         &self.boundaries
+    }
+    /// get the boundaries in this range set as a SmallVec
+    pub fn into_inner(self) -> SmallVec<A> {
+        self.boundaries
     }
     /// the empty range set
     pub fn empty() -> Self {

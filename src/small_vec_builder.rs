@@ -1,8 +1,8 @@
 //! A data structure for in place modification of vecs.
 // #![deny(warnings)]
 #![deny(missing_docs)]
+use core::fmt::Debug;
 use smallvec::{Array, SmallVec};
-use std::fmt::Debug;
 
 /// builds a SmallVec out of itself
 pub struct InPlaceSmallVecBuilder<A: Array> {

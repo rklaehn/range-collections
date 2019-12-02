@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use core::cmp::Ordering;
 
 /// The read part of the merge state that is needed for the binary merge algorithm
 /// it just needs random access for the remainder of a and b

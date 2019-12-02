@@ -20,6 +20,7 @@ quickcheck_macros = "0.8.0"
 testdrop = "0.1.2"
 num-traits = "0.2.8"
 criterion = "0.3.0"
+rand = "0.7.2"
 
 [[bench]]
 name = "range_set"

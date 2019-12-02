@@ -1,9 +1,9 @@
 use crate::binary_merge::{EarlyOut, MergeOperation, MergeStateRead};
 use crate::iterators::SliceIterator;
 use crate::small_vec_builder::{InPlaceSmallVecBuilder, SmallVecIntoIter};
+use core::default::Default;
+use core::fmt::Debug;
 use smallvec::{Array, SmallVec};
-use std::default::Default;
-use std::fmt::Debug;
 
 /// A typical write part for the merge state
 pub(crate) trait MergeStateMut: MergeStateRead {
