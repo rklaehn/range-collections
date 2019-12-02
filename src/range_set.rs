@@ -564,33 +564,30 @@ impl<'a, T, A: Array<Item = T>> MergeStateRead for VecMergeState<'a, T, A> {
     }
 }
 
-struct RangeSetInPlaceMergeState<A: Array> {
-    inner: InPlaceMergeState<A, A>,
+struct RangeSetInPlaceMergeState<'a, A: Array> {
+    inner: InPlaceMergeState<'a, A, A>,
     ac: bool,
     bc: bool,
 }
 
-impl<T, A: Array<Item = T>> RangeSetInPlaceMergeState<A> {
+impl<'a, T, A: Array<Item = T>> RangeSetInPlaceMergeState<'a, A> {
     pub fn merge<O: MergeOperation<Self>>(
-        a: &mut SmallVec<A>,
+        a: &'a mut SmallVec<A>,
         a0: bool,
         b: SmallVec<A>,
         b0: bool,
         o: O,
     ) {
-        let mut t: SmallVec<A> = Default::default();
-        std::mem::swap(a, &mut t);
         let mut state = Self {
             ac: a0,
             bc: b0,
-            inner: InPlaceMergeState::new(t, b),
+            inner: InPlaceMergeState::new(a, b),
         };
         o.merge(&mut state);
-        *a = state.inner.result();
     }
 }
 
-impl<'a, T, A: Array<Item = T>> MergeStateRead for RangeSetInPlaceMergeState<A> {
+impl<'a, T, A: Array<Item = T>> MergeStateRead for RangeSetInPlaceMergeState<'a, A> {
     type A = T;
     type B = T;
     fn a_slice(&self) -> &[T] {
@@ -601,7 +598,7 @@ impl<'a, T, A: Array<Item = T>> MergeStateRead for RangeSetInPlaceMergeState<A> 
     }
 }
 
-impl<'a, T, A: Array<Item = T>> MergeStateMut for RangeSetInPlaceMergeState<A> {
+impl<'a, T, A: Array<Item = T>> MergeStateMut for RangeSetInPlaceMergeState<'a, A> {
     fn advance_a(&mut self, n: usize, copy: bool) -> EarlyOut {
         self.ac ^= is_odd(n);
         self.inner.advance_a(n, copy)
@@ -612,7 +609,7 @@ impl<'a, T, A: Array<Item = T>> MergeStateMut for RangeSetInPlaceMergeState<A> {
     }
 }
 
-impl<A: Array> RangeSetMergeState for RangeSetInPlaceMergeState<A> {
+impl<'a, A: Array> RangeSetMergeState for RangeSetInPlaceMergeState<'a, A> {
     fn ac(&self) -> bool {
         self.ac
     }

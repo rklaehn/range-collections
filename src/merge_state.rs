@@ -1,7 +1,6 @@
 use crate::binary_merge::{EarlyOut, MergeOperation, MergeStateRead};
 use crate::iterators::SliceIterator;
 use crate::small_vec_builder::{InPlaceSmallVecBuilder, SmallVecIntoIter};
-use core::default::Default;
 use core::fmt::Debug;
 use smallvec::{Array, SmallVec};
 
@@ -18,24 +17,21 @@ pub(crate) trait MergeStateMut: MergeStateRead {
     fn advance_b(&mut self, n: usize, take: bool) -> EarlyOut;
 }
 
-pub(crate) struct InPlaceMergeState<A: Array, B: Array> {
-    pub a: InPlaceSmallVecBuilder<A>,
+pub(crate) struct InPlaceMergeState<'a, A: Array, B: Array> {
+    pub a: InPlaceSmallVecBuilder<'a, A>,
     pub b: SmallVecIntoIter<B>,
 }
 
-impl<A: Array, B: Array> InPlaceMergeState<A, B> {
-    pub fn new(a: SmallVec<A>, b: SmallVec<B>) -> Self {
+impl<'a, A: Array, B: Array> InPlaceMergeState<'a, A, B> {
+    pub fn new(a: &'a mut SmallVec<A>, b: SmallVec<B>) -> Self {
         Self {
             a: a.into(),
             b: SmallVecIntoIter::new(b),
         }
     }
-    pub fn result(self) -> SmallVec<A> {
-        self.a.into_vec()
-    }
 }
 
-impl<A: Array, B: Array> MergeStateRead for InPlaceMergeState<A, B> {
+impl<'a, A: Array, B: Array> MergeStateRead for InPlaceMergeState<'a, A, B> {
     type A = A::Item;
     type B = B::Item;
     fn a_slice(&self) -> &[A::Item] {
@@ -46,7 +42,7 @@ impl<A: Array, B: Array> MergeStateRead for InPlaceMergeState<A, B> {
     }
 }
 
-impl<A: Array> MergeStateMut for InPlaceMergeState<A, A> {
+impl<'a, A: Array> MergeStateMut for InPlaceMergeState<'a, A, A> {
     #[inline]
     fn advance_a(&mut self, n: usize, take: bool) -> EarlyOut {
         self.a.consume(n, take);
@@ -65,13 +61,10 @@ impl<A: Array> MergeStateMut for InPlaceMergeState<A, A> {
     }
 }
 
-impl<A: Array, B: Array> InPlaceMergeState<A, B> {
-    pub fn merge<O: MergeOperation<Self>>(a: &mut SmallVec<A>, b: SmallVec<B>, o: O) {
-        let mut t: SmallVec<A> = Default::default();
-        std::mem::swap(a, &mut t);
-        let mut state = Self::new(t, b);
+impl<'a, A: Array, B: Array> InPlaceMergeState<'a, A, B> {
+    pub fn merge<O: MergeOperation<Self>>(a: &'a mut SmallVec<A>, b: SmallVec<B>, o: O) {
+        let mut state = Self::new(a, b);
         o.merge(&mut state);
-        *a = state.result();
     }
 }
 
