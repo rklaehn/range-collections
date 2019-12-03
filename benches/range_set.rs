@@ -43,10 +43,6 @@ fn intersects_new(a: &RangeSet<Elem>, b: &RangeSet<Elem>) -> bool {
     !a.is_disjoint(b)
 }
 
-fn elem(i: usize) -> Elem {
-    i as i32
-}
-
 fn make_on_off_profile(n: Elem, offset: Elem, stride: Elem) -> RangeSet<Elem> {
     let mut res = RangeSet::empty();
     for i in 0..n {

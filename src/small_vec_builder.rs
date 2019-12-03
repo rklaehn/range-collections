@@ -70,7 +70,7 @@ impl<'a, A: Array> InPlaceSmallVecBuilder<'a, A> {
             let cap = v.capacity();
             // just move source to the end without any concern about dropping
             unsafe {
-                std::ptr::copy(v.as_ptr().add(s0), v.as_mut_ptr().add(cap - sn), sn);
+                copy(v.as_mut_ptr(), s0, cap - sn, sn);
                 v.set_len(cap);
             }
             // move s0
@@ -112,7 +112,7 @@ impl<'a, A: Array> InPlaceSmallVecBuilder<'a, A> {
         if take {
             if self.t1 != self.s0 {
                 unsafe {
-                    std::ptr::copy(v.add(self.s0), v.add(self.t1), n);
+                    copy(v, self.s0, self.t1, n);
                 }
             }
             self.t1 += n;
@@ -146,8 +146,7 @@ impl<'a, A: Array> InPlaceSmallVecBuilder<'a, A> {
         let n = std::cmp::min(n, self.source_slice().len());
         if self.t1 != self.s0 {
             unsafe {
-                let v = self.v.as_mut_ptr();
-                std::ptr::copy(v.add(self.s0), v.add(self.t1), n);
+                copy(self.v.as_mut_ptr(), self.s0, self.t1, n);
             }
         }
         self.t1 += n;
@@ -174,6 +173,20 @@ impl<'a, A: Array> InPlaceSmallVecBuilder<'a, A> {
         self.s0 = self.t1;
         // shorten the source part
     }
+}
+
+#[inline]
+unsafe fn copy<T>(v: *mut T, from: usize, to: usize, n: usize) {
+    // if to < from {
+    //     for i in 0..n {
+    //         std::ptr::write(v.add(to + i), std::ptr::read(v.add(from + i)));
+    //     }
+    // } else {
+    //     for i in (0..n).rev() {
+    //         std::ptr::write(v.add(to + i), std::ptr::read(v.add(from + i)));
+    //     }
+    // }
+    std::ptr::copy(v.add(from), v.add(to), n);
 }
 
 /// the purpose of drop is to clean up and make the SmallVec that we reference into a normal
