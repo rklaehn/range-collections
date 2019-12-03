@@ -206,39 +206,35 @@ impl<T: Ord, A: Array<Item = T>> RangeSet<T, A> {
 
     /// true if this range set is disjoint from another range set
     pub fn is_disjoint(&self, that: &Self) -> bool {
-        !RangeSetBoolOpMergeState::merge(
-            self.below_all,
-            self.boundaries.as_slice(),
-            that.below_all,
-            that.boundaries.as_slice(),
-            IntersectionOp,
-        )
+        !(self.below_all & that.below_all)
+            && !RangeSetBoolOpMergeState::merge(
+                self.below_all,
+                self.boundaries.as_slice(),
+                that.below_all,
+                that.boundaries.as_slice(),
+                IntersectionOp,
+            )
     }
 
     /// true if this range set is a superset of another range set
     ///
     /// A range set is considered to be a superset of itself
     pub fn is_superset(&self, that: &Self) -> bool {
-        !RangeSetBoolOpMergeState::merge(
-            that.below_all,
-            that.boundaries.as_slice(),
-            self.below_all,
-            self.boundaries.as_slice(),
-            DiffOp,
-        )
+        that.is_subset(self)
     }
 
     /// true if this range set is a subset of another range set
     ///
     /// A range set is considered to be a subset of itself
     pub fn is_subset(&self, that: &Self) -> bool {
-        !RangeSetBoolOpMergeState::merge(
-            self.below_all,
-            self.boundaries.as_slice(),
-            that.below_all,
-            that.boundaries.as_slice(),
-            DiffOp,
-        )
+        !(self.below_all & !that.below_all)
+            && !RangeSetBoolOpMergeState::merge(
+                self.below_all,
+                self.boundaries.as_slice(),
+                that.below_all,
+                that.boundaries.as_slice(),
+                DiffOp,
+            )
     }
 
     /// true if the value is contained in the range set
