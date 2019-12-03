@@ -683,6 +683,11 @@ impl<'a, T: Ord, M: RangeSetMergeState<A = T, B = T>> MergeOperation<M> for XorO
     }
 }
 
+/// w
+pub fn asm_test(mut a: RangeSet<usize>, b: RangeSet<usize>) {
+    a |= b;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

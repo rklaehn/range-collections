@@ -176,6 +176,8 @@ impl<'a, A: Array> InPlaceSmallVecBuilder<'a, A> {
     }
 }
 
+/// the purpose of drop is to clean up and make the SmallVec that we reference into a normal
+/// SmallVec again.
 impl<'a, A: Array> Drop for InPlaceSmallVecBuilder<'a, A> {
     fn drop(&mut self) {
         // drop the source part.
@@ -183,101 +185,96 @@ impl<'a, A: Array> Drop for InPlaceSmallVecBuilder<'a, A> {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     extern crate testdrop;
-//     use super::*;
-//     use testdrop::{Item, TestDrop};
+#[cfg(test)]
+mod tests {
+    extern crate testdrop;
+    use super::*;
+    use testdrop::{Item, TestDrop};
 
-//     type Array<'a> = [Item<'a>; 2];
+    type Array<'a> = [Item<'a>; 2];
 
-//     fn everything_dropped<'a, F>(td: &'a TestDrop, n: usize, f: F)
-//     where
-//         F: Fn(SmallVec<Array<'a>>, SmallVec<Array<'a>>) -> InPlaceSmallVecBuilder<'a, Array<'a>>,
-//     {
-//         let mut a: SmallVec<Array<'a>> = SmallVec::new();
-//         let mut b: SmallVec<Array<'a>> = SmallVec::new();
-//         let mut ids: Vec<usize> = Vec::new();
-//         for _ in 0..n {
-//             let (id, item) = td.new_item();
-//             a.push(item);
-//             ids.push(id);
-//         }
-//         for _ in 0..n {
-//             let (id, item) = td.new_item();
-//             b.push(item);
-//             ids.push(id);
-//         }
-//         let fb = f(a, b);
-//         std::mem::drop(fb);
-//         for id in ids {
-//             td.assert_drop(id);
-//         }
-//     }
+    fn everything_dropped<'a, F>(td: &'a TestDrop, n: usize, f: F)
+    where
+        F: Fn(SmallVec<Array<'a>>, SmallVec<Array<'a>>) -> (),
+    {
+        let mut a: SmallVec<Array<'a>> = SmallVec::new();
+        let mut b: SmallVec<Array<'a>> = SmallVec::new();
+        let mut ids: Vec<usize> = Vec::new();
+        for _ in 0..n {
+            let (id, item) = td.new_item();
+            a.push(item);
+            ids.push(id);
+        }
+        for _ in 0..n {
+            let (id, item) = td.new_item();
+            b.push(item);
+            ids.push(id);
+        }
+        f(a, b);
+        for id in ids {
+            td.assert_drop(id);
+        }
+    }
 
-//     #[test]
-//     fn drop_just_source() {
-//         everything_dropped(&TestDrop::new(), 10, |a, _| a.into())
-//     }
+    #[test]
+    fn drop_just_source() {
+        everything_dropped(&TestDrop::new(), 10, |mut a, _| {
+            let _: InPlaceSmallVecBuilder<Array> = (&mut a).into();
+        })
+    }
 
-//     #[test]
-//     fn target_push_gap() {
-//         everything_dropped(&TestDrop::new(), 10, |a, b| {
-//             let mut res: InPlaceSmallVecBuilder<Array> = a.into();
-//             for x in b.into_iter() {
-//                 res.push(x);
-//             }
-//             res
-//         })
-//     }
+    #[test]
+    fn target_push_gap() {
+        everything_dropped(&TestDrop::new(), 10, |mut a, b| {
+            let mut res: InPlaceSmallVecBuilder<Array> = (&mut a).into();
+            for x in b.into_iter() {
+                res.push(x);
+            }
+        })
+    }
 
-//     #[test]
-//     fn source_move_some() {
-//         everything_dropped(&TestDrop::new(), 10, |a, _| {
-//             let mut res: InPlaceSmallVecBuilder<Array> = a.into();
-//             res.take(3);
-//             res
-//         })
-//     }
+    #[test]
+    fn source_move_some() {
+        everything_dropped(&TestDrop::new(), 10, |mut a, _| {
+            let mut res: InPlaceSmallVecBuilder<Array> = (&mut a).into();
+            res.take(3);
+        })
+    }
 
-//     #[test]
-//     fn source_move_all() {
-//         everything_dropped(&TestDrop::new(), 10, |a, _| {
-//             let mut res: InPlaceSmallVecBuilder<Array> = a.into();
-//             res.take(10);
-//             res
-//         })
-//     }
+    #[test]
+    fn source_move_all() {
+        everything_dropped(&TestDrop::new(), 10, |mut a, _| {
+            let mut res: InPlaceSmallVecBuilder<Array> = (&mut a).into();
+            res.take(10);
+        })
+    }
 
-//     #[test]
-//     fn source_drop_some() {
-//         everything_dropped(&TestDrop::new(), 10, |a, _| {
-//             let mut res: InPlaceSmallVecBuilder<Array> = a.into();
-//             res.skip(3);
-//             res
-//         })
-//     }
+    #[test]
+    fn source_drop_some() {
+        everything_dropped(&TestDrop::new(), 10, |mut a, _| {
+            let mut res: InPlaceSmallVecBuilder<Array> = (&mut a).into();
+            res.skip(3);
+        })
+    }
 
-//     #[test]
-//     fn source_drop_all() {
-//         everything_dropped(&TestDrop::new(), 10, |a, _| {
-//             let mut res: InPlaceSmallVecBuilder<Array> = a.into();
-//             res.skip(10);
-//             res
-//         })
-//     }
+    #[test]
+    fn source_drop_all() {
+        everything_dropped(&TestDrop::new(), 10, |mut a, _| {
+            let mut res: InPlaceSmallVecBuilder<Array> = (&mut a).into();
+            res.skip(10);
+        })
+    }
 
-//     #[test]
-//     fn source_pop_some() {
-//         everything_dropped(&TestDrop::new(), 10, |a, _| {
-//             let mut res: InPlaceSmallVecBuilder<Array> = a.into();
-//             res.pop_front();
-//             res.pop_front();
-//             res.pop_front();
-//             res
-//         })
-//     }
-// }
+    #[test]
+    fn source_pop_some() {
+        everything_dropped(&TestDrop::new(), 10, |mut a, _| {
+            let mut res: InPlaceSmallVecBuilder<Array> = (&mut a).into();
+            res.pop_front();
+            res.pop_front();
+            res.pop_front();
+        })
+    }
+}
 
 /// workaround until https://github.com/servo/rust-smallvec/issues/181 is implemented
 pub struct SmallVecIntoIter<A: Array> {
