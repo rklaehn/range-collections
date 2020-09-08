@@ -4,14 +4,20 @@
 use crate::binary_merge::{EarlyOut, MergeOperation, MergeStateRead};
 use crate::merge_state::{BoolOpMergeState, InPlaceMergeState, MergeStateMut, SmallVecMergeState};
 use core::cmp::Ordering;
+use core::fmt;
 use core::fmt::Debug;
-use core::ops::Bound;
-use core::ops::Bound::*;
 use core::ops::{
-    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Range, RangeFrom, RangeTo,
-    Sub, SubAssign,
+    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Bound::*, Not, Range,
+    RangeFrom, RangeTo, Sub, SubAssign,
+};
+#[cfg(feature = "serde")]
+use serde::{
+    de::{Deserialize, Deserializer, SeqAccess, Visitor},
+    ser::{Serialize, SerializeSeq, Serializer},
 };
 use smallvec::{Array, SmallVec};
+#[cfg(feature = "serde")]
+use std::marker::PhantomData;
 
 /// # A set of non-overlapping ranges
 ///
@@ -614,6 +620,64 @@ impl<'a, A: Array> RangeSetMergeState for RangeSetInPlaceMergeState<'a, A> {
     }
 }
 
+#[cfg(feature = "serde")]
+impl<T: Serialize, A: Array<Item = T>> Serialize for RangeSet<T, A> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_seq(Some(self.boundaries.len() + 1))?;
+        map.serialize_element(&self.below_all)?;
+        for x in self.boundaries.iter() {
+            map.serialize_element(x)?;
+        }
+        map.end()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, T: Deserialize<'de> + Ord, A: Array<Item = T>> Deserialize<'de> for RangeSet<T, A> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_seq(RangeSetVisitor {
+            phantom: PhantomData,
+        })
+    }
+}
+
+#[cfg(feature = "serde")]
+struct RangeSetVisitor<T, A> {
+    phantom: PhantomData<(T, A)>,
+}
+
+#[cfg(feature = "serde")]
+impl<'de, T, A: Array<Item = T>> Visitor<'de> for RangeSetVisitor<T, A>
+where
+    T: Deserialize<'de> + Ord,
+{
+    type Value = RangeSet<T, A>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a sequence")
+    }
+
+    fn visit_seq<B>(self, mut seq: B) -> Result<Self::Value, B::Error>
+    where
+        B: SeqAccess<'de>,
+    {
+        let len = seq.size_hint().unwrap_or(0);
+        let below_all = seq
+            .next_element()?
+            .ok_or(serde::de::Error::custom("expected bool as first element"))?;
+        let mut boundaries: SmallVec<A> = SmallVec::with_capacity(len.saturating_sub(1));
+        while let Some(value) = seq.next_element::<A::Item>()? {
+            boundaries.push(value);
+        }
+        boundaries.sort();
+        boundaries.dedup();
+        Ok(RangeSet {
+            below_all,
+            boundaries,
+        })
+    }
+}
+
 struct UnionOp;
 struct IntersectionOp;
 struct XorOp;
@@ -677,11 +741,6 @@ impl<'a, T: Ord, M: RangeSetMergeState<A = T, B = T>> MergeOperation<M> for XorO
     fn cmp(&self, a: &T, b: &T) -> Ordering {
         a.cmp(b)
     }
-}
-
-/// w
-pub fn asm_test(mut a: RangeSet<usize>, b: RangeSet<usize>) {
-    a |= b;
 }
 
 #[cfg(test)]
@@ -764,6 +823,13 @@ mod tests {
         println!("{:?}", r2);
         println!("{:?}", r3);
         println!("{:?} {:?}", r4, r5);
+    }
+
+    #[quickcheck]
+    fn range_seq_serde(a: Test) -> bool {
+        let bytes = serde_cbor::to_vec(&a).unwrap();
+        let b: Test = serde_cbor::from_slice(&bytes).unwrap();
+        a == b
     }
 
     #[quickcheck]

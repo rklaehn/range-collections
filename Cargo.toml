@@ -1,6 +1,6 @@
 [package]
 name = "range-collections"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Rüdiger Klaehn <rklaehn@protonmail.com>"]
 description = "Sets and maps of ranges, backed by smallvec"
 repository = "https://github.com/rklaehn/range-collections"
@@ -14,6 +14,14 @@ homepage = "https://github.com/rklaehn"
 [dependencies]
 smallvec = "1.0"
 
+[dependencies.serde]
+default-features = false
+optional = true
+version = "1"
+
+[features]
+default = ["serde"]
+
 [dev-dependencies]
 quickcheck = "0.8"
 quickcheck_macros = "0.8.0"
@@ -21,6 +29,7 @@ testdrop = "0.1.2"
 num-traits = "0.2.8"
 criterion = "0.3.0"
 rand = "0.7.2"
+serde_cbor = "0.11.1"
 
 [[bench]]
 name = "range_set"
