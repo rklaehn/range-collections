@@ -679,7 +679,11 @@ where
 }
 
 #[cfg(feature = "rkyv")]
-impl<T: rkyv::Archive, A: Array<Item = T>> rkyv::Archive for RangeSet<T, A> {
+impl<T, A> rkyv::Archive for RangeSet<T, A>
+where
+    T: rkyv::Archive,
+    A: Array<Item = T>,
+{
     type Archived = ArchivedRangeSet<<T as rkyv::Archive>::Archived>;
 
     type Resolver = rkyv::vec::VecResolver;
@@ -696,8 +700,11 @@ impl<T: rkyv::Archive, A: Array<Item = T>> rkyv::Archive for RangeSet<T, A> {
 }
 
 #[cfg(feature = "rkyv")]
-impl<T: rkyv::Archive + rkyv::Serialize<S>, S: rkyv::ser::ScratchSpace + rkyv::ser::Serializer, A: Array<Item = T>>
-    rkyv::Serialize<S> for RangeSet<T, A>
+impl<T, S, A> rkyv::Serialize<S> for RangeSet<T, A>
+where
+    T: rkyv::Archive + rkyv::Serialize<S>,
+    S: rkyv::ser::ScratchSpace + rkyv::ser::Serializer,
+    A: Array<Item = T>,
 {
     fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
         rkyv::vec::ArchivedVec::serialize_from_slice(self.boundaries.as_ref(), serializer)
@@ -710,7 +717,7 @@ where
     T: rkyv::Archive,
     A: Array<Item = T>,
     D: rkyv::Fallible + ?Sized,
-    [<T as rkyv::Archive>::Archived]: rkyv::DeserializeUnsized<[T], D>,
+    [T::Archived]: rkyv::DeserializeUnsized<[T], D>,
 {
     fn deserialize(&self, deserializer: &mut D) -> Result<RangeSet<T, A>, D::Error> {
         // todo: replace this with SmallVec once smallvec support for rkyv lands on crates.io
