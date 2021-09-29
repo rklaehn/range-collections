@@ -86,10 +86,10 @@ pub(crate) trait MergeOperation<M: MergeStateRead> {
                 }
             }
         }
-        while let Some(_) = m.a_slice().first() {
+        while m.a_slice().first().is_some() {
             self.from_a(m, 1)?;
         }
-        while let Some(_) = m.b_slice().first() {
+        while m.b_slice().first().is_some() {
             self.from_b(m, 1)?;
         }
         Some(())

@@ -664,7 +664,7 @@ where
         let len = seq.size_hint().unwrap_or(0);
         let below_all = seq
             .next_element()?
-            .ok_or(serde::de::Error::custom("expected bool as first element"))?;
+            .ok_or_else(|| serde::de::Error::custom("expected bool as first element"))?;
         let mut boundaries: SmallVec<A> = SmallVec::with_capacity(len.saturating_sub(1));
         while let Some(value) = seq.next_element::<A::Item>()? {
             boundaries.push(value);
@@ -676,6 +676,59 @@ where
             boundaries,
         })
     }
+}
+
+#[cfg(feature = "rkyv")]
+impl<T: rkyv::Archive, A: Array<Item = T>> rkyv::Archive for RangeSet<T, A> {
+    type Archived = ArchivedRangeSet<<T as rkyv::Archive>::Archived>;
+
+    type Resolver = rkyv::vec::VecResolver;
+
+    unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
+        (*out).below_all = self.below_all;
+        rkyv::vec::ArchivedVec::resolve_from_slice(
+            self.boundaries.as_slice(),
+            pos,
+            resolver,
+            &mut (*out).boundaries as *mut rkyv::vec::ArchivedVec<<T as rkyv::Archive>::Archived>,
+        );
+    }
+}
+
+#[cfg(feature = "rkyv")]
+impl<T: rkyv::Archive + rkyv::Serialize<S>, S: rkyv::ser::ScratchSpace + rkyv::ser::Serializer, A: Array<Item = T>>
+    rkyv::Serialize<S> for RangeSet<T, A>
+{
+    fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+        rkyv::vec::ArchivedVec::serialize_from_slice(self.boundaries.as_ref(), serializer)
+    }
+}
+
+#[cfg(feature = "rkyv")]
+impl<T, A, D> rkyv::Deserialize<RangeSet<T, A>, D> for ArchivedRangeSet<T::Archived>
+where
+    T: rkyv::Archive,
+    A: Array<Item = T>,
+    D: rkyv::Fallible + ?Sized,
+    [<T as rkyv::Archive>::Archived]: rkyv::DeserializeUnsized<[T], D>,
+{
+    fn deserialize(&self, deserializer: &mut D) -> Result<RangeSet<T, A>, D::Error> {
+        // todo: replace this with SmallVec once smallvec support for rkyv lands on crates.io
+        let boundaries: Vec<T> = self.boundaries.deserialize(deserializer)?;
+        Ok(RangeSet {
+            below_all: self.below_all,
+            boundaries: boundaries.into(),
+        })
+    }
+}
+
+/// Archived version of a RangeSet
+#[cfg(feature = "rkyv")]
+#[cfg_attr(feature = "rkyv_validated", derive(bytecheck::CheckBytes))]
+#[derive(Debug)]
+pub struct ArchivedRangeSet<T> {
+    below_all: bool,
+    boundaries: rkyv::vec::ArchivedVec<T>,
 }
 
 struct UnionOp;
@@ -721,7 +774,7 @@ impl<'a, T: Ord, M: RangeSetMergeState<A = T, B = T>> MergeOperation<M> for Diff
         m.advance_b(n, m.ac())
     }
     fn collision(&self, m: &mut M) -> EarlyOut {
-        m.advance_both(m.ac() == !m.bc())
+        m.advance_both(m.ac() != m.bc())
     }
     fn cmp(&self, a: &T, b: &T) -> Ordering {
         a.cmp(b)
@@ -771,7 +824,7 @@ mod tests {
         fn arbitrary<G: Gen>(g: &mut G) -> Self {
             let mut boundaries: Vec<T> = Arbitrary::arbitrary(g);
             let below_all: bool = Arbitrary::arbitrary(g);
-            boundaries.truncate(2);
+            boundaries.truncate(4);
             boundaries.sort();
             boundaries.dedup();
             Self::new(below_all, boundaries.into())
@@ -825,11 +878,42 @@ mod tests {
         println!("{:?} {:?}", r4, r5);
     }
 
+    #[cfg(feature = "serde")]
     #[quickcheck]
     fn range_seq_serde(a: Test) -> bool {
         let bytes = serde_cbor::to_vec(&a).unwrap();
         let b: Test = serde_cbor::from_slice(&bytes).unwrap();
         a == b
+    }
+
+    #[cfg(feature = "rkyv")]
+    #[quickcheck]
+    fn range_seq_rkyv(a: Test) -> bool {
+        use rkyv::*;
+        use ser::Serializer;
+        let mut serializer = ser::serializers::AllocSerializer::<256>::default();
+        serializer
+            .serialize_value(&a)
+            .expect("unable to rkyv serialize");
+        let bytes = serializer.into_serializer().into_inner();
+        let archived = unsafe { rkyv::archived_root::<Test>(&bytes) };
+        let deserialized: Test = archived.deserialize(&mut Infallible).unwrap();
+        a == deserialized
+    }
+
+    #[cfg(feature = "rkyv_validated")]
+    #[quickcheck]
+    fn range_seq_rkyv_validated(a: Test) -> bool {
+        use rkyv::*;
+        use ser::Serializer;
+        let mut serializer = ser::serializers::AllocSerializer::<256>::default();
+        serializer
+            .serialize_value(&a)
+            .expect("unable to rkyv serialize");
+        let bytes = serializer.into_serializer().into_inner();
+        let archived = rkyv::check_archived_root::<Test>(&bytes).unwrap();
+        let deserialized: Test = archived.deserialize(&mut Infallible).unwrap();
+        a == deserialized
     }
 
     #[quickcheck]
