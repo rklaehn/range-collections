@@ -731,11 +731,68 @@ where
 
 /// Archived version of a RangeSet
 #[cfg(feature = "rkyv")]
-#[cfg_attr(feature = "rkyv_validated", derive(bytecheck::CheckBytes))]
 #[derive(Debug)]
 pub struct ArchivedRangeSet<T> {
     below_all: bool,
     boundaries: rkyv::vec::ArchivedVec<T>,
+}
+
+/// Validation error for a range set
+#[cfg(feature = "rkyv_validated")]
+#[derive(Debug)]
+pub enum ArchivedRangeSetError {
+    /// error with the individual fields of the ArchivedRangeSet, e.g a boolean
+    /// value that is neither 0u8 or 1u8
+    StructCheckError(bytecheck::StructCheckError),
+    /// boundaries were not properly ordered
+    OrderCheckError,
+}
+
+#[cfg(feature = "rkyv_validated")]
+impl std::error::Error for ArchivedRangeSetError {}
+
+#[cfg(feature = "rkyv_validated")]
+impl std::fmt::Display for ArchivedRangeSetError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+#[cfg(feature = "rkyv_validated")]
+impl<C: ?Sized, T> bytecheck::CheckBytes<C> for ArchivedRangeSet<T>
+where
+    T: Ord,
+    bool: bytecheck::CheckBytes<C>,
+    rkyv::vec::ArchivedVec<T>: bytecheck::CheckBytes<C>,
+{
+    type Error = ArchivedRangeSetError;
+    unsafe fn check_bytes<'a>(
+        value: *const Self,
+        context: &mut C,
+    ) -> Result<&'a Self, Self::Error> {
+        let below_all = &(*value).below_all;
+        let boundaries = &(*value).boundaries;
+        bool::check_bytes(below_all, context).map_err(|e| {
+            ArchivedRangeSetError::StructCheckError(bytecheck::StructCheckError {
+                field_name: "below_all",
+                inner: bytecheck::ErrorBox::new(e),
+            })
+        })?;
+        rkyv::vec::ArchivedVec::<T>::check_bytes(boundaries, context).map_err(|e| {
+            ArchivedRangeSetError::StructCheckError(bytecheck::StructCheckError {
+                field_name: "boundaries",
+                inner: bytecheck::ErrorBox::new(e),
+            })
+        })?;
+        if !boundaries
+            .iter()
+            .zip(boundaries.iter().skip(1))
+            .all(|(a, b)| a < b)
+        {
+            return Err(ArchivedRangeSetError::OrderCheckError);
+        };
+        Ok(&*value)
+    }
 }
 
 struct UnionOp;
@@ -895,13 +952,11 @@ mod tests {
 
     #[cfg(feature = "rkyv")]
     #[quickcheck]
-    fn range_seq_rkyv(a: Test) -> bool {
+    fn range_seq_rkyv_unvalidated(a: Test) -> bool {
         use rkyv::*;
         use ser::Serializer;
         let mut serializer = ser::serializers::AllocSerializer::<256>::default();
-        serializer
-            .serialize_value(&a)
-            .expect("unable to rkyv serialize");
+        serializer.serialize_value(&a).unwrap();
         let bytes = serializer.into_serializer().into_inner();
         let archived = unsafe { rkyv::archived_root::<Test>(&bytes) };
         let deserialized: Test = archived.deserialize(&mut Infallible).unwrap();
@@ -914,13 +969,37 @@ mod tests {
         use rkyv::*;
         use ser::Serializer;
         let mut serializer = ser::serializers::AllocSerializer::<256>::default();
-        serializer
-            .serialize_value(&a)
-            .expect("unable to rkyv serialize");
+        serializer.serialize_value(&a).unwrap();
         let bytes = serializer.into_serializer().into_inner();
         let archived = rkyv::check_archived_root::<Test>(&bytes).unwrap();
         let deserialized: Test = archived.deserialize(&mut Infallible).unwrap();
         a == deserialized
+    }
+
+    #[cfg(feature = "rkyv_validated")]
+    #[test]
+    fn range_seq_rkyv_errors() {
+        use rkyv::*;
+        use std::num::NonZeroU64;
+
+        // deserialize a boolean value of 2, must produce an error!
+        let mut bytes = AlignedVec::new();
+        bytes.extend_from_slice(&hex::decode("000000000000000002000000").unwrap());
+        assert!(rkyv::check_archived_root::<Test>(&bytes).is_err());
+
+        // deserialize wrongly ordered range set, must produce an error
+        let mut bytes = AlignedVec::new();
+        bytes.extend_from_slice(
+            &hex::decode("02000000000000000100000000000000f0ffffff0200000000000000").unwrap(),
+        );
+        assert!(rkyv::check_archived_root::<Test>(&bytes).is_err());
+
+        // deserialize wrong value (0 for a NonZeroU64), must produce an error
+        let mut bytes = AlignedVec::new();
+        bytes.extend_from_slice(
+            &hex::decode("00000000000000000100000000000000f0ffffff0200000000000000").unwrap(),
+        );
+        assert!(rkyv::check_archived_root::<RangeSet<NonZeroU64>>(&bytes).is_err());
     }
 
     #[quickcheck]
