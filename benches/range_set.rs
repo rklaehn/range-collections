@@ -1,7 +1,7 @@
 use core::ops::Range;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::prelude::*;
-use range_collections::RangeSet;
+use range_collections::{range_set::AbstractRangeSet, RangeSet};
 
 type Elem = i32;
 

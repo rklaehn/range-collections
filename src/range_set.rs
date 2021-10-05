@@ -132,6 +132,87 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
+/// Anything that provides sorted boundaries
+///
+/// This is just implemented for ArchivedRangeSet and RangeSet.
+/// It probably does not make sense to implement it yourself.
+pub trait AbstractRangeSet<T: Ord + MinValue> {
+    /// the boundaries as a reference - must be strictly sorted
+    fn boundaries(&self) -> &[T];
+
+    /// true if the value is contained in the range set
+    fn contains(&self, value: &T) -> bool {
+        match self.boundaries().binary_search(value) {
+            Ok(index) => !is_odd(index),
+            Err(index) => is_odd(index),
+        }
+    }
+
+    /// true if the range set is empty
+    fn is_empty(&self) -> bool {
+        self.boundaries().is_empty()
+    }
+
+    /// true if the range set contains all values
+    fn is_all(&self) -> bool {
+        self.boundaries().len() == 1 && self.boundaries()[0] == T::min_value()
+    }
+
+    /// true if this range set is disjoint from another range set
+    fn is_disjoint(&self, that: &impl AbstractRangeSet<T>) -> bool {
+        !RangeSetBoolOpMergeState::merge(self.boundaries(), that.boundaries(), IntersectionOp)
+    }
+
+    /// true if this range set is a superset of another range set
+    ///
+    /// A range set is considered to be a superset of itself
+    fn is_subset(&self, that: impl AbstractRangeSet<T>) -> bool {
+        !RangeSetBoolOpMergeState::merge(self.boundaries(), that.boundaries(), DiffOp)
+    }
+
+    /// true if this range set is a subset of another range set
+    ///
+    /// A range set is considered to be a subset of itself
+    fn is_superset(&self, that: impl AbstractRangeSet<T>) -> bool {
+        !RangeSetBoolOpMergeState::merge(that.boundaries(), self.boundaries(), DiffOp)
+    }
+
+    /// iterate over all ranges in this range set
+    fn iter(&self) -> Iter<T> {
+        Iter(self.boundaries())
+    }
+}
+
+impl<A: Array> AbstractRangeSet<A::Item> for RangeSet<A::Item, A>
+where
+    A::Item: Ord + MinValue,
+{
+    fn boundaries(&self) -> &[A::Item] {
+        self.0.as_ref()
+    }
+}
+
+impl<T: Ord + MinValue> AbstractRangeSet<T> for ArchivedRangeSet<T> {
+    fn boundaries(&self) -> &[T] {
+        self.0.as_ref()
+    }
+}
+
+impl<A: Array> AbstractRangeSet<A::Item> for &RangeSet<A::Item, A>
+where
+    A::Item: Ord + MinValue,
+{
+    fn boundaries(&self) -> &[A::Item] {
+        self.0.as_ref()
+    }
+}
+
+impl<T: Ord + MinValue> AbstractRangeSet<T> for &ArchivedRangeSet<T> {
+    fn boundaries(&self) -> &[T] {
+        self.0.as_ref()
+    }
+}
+
 /// trait for types that have a smallest value
 pub trait MinValue {
     /// the minimum value for this type
@@ -152,7 +233,7 @@ impl<T, A: Array<Item = T>> RangeSet<T, A> {
 
     /// iterate over all ranges in this range set
     pub fn iter(&self) -> Iter<T> {
-        Iter(self.0.as_slice())
+        Iter(self.boundaries())
     }
     /// boundaries in this range set
     pub fn boundaries(&self) -> &SmallVec<A> {
@@ -187,14 +268,6 @@ impl<T: MinValue + Ord, A: Array<Item = T>> RangeSet<T, A> {
     pub fn all() -> Self {
         Self::from_range_from(T::min_value())
     }
-    /// true if the range set is empty
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-    /// true if the range set contains all values
-    pub fn is_all(&self) -> bool {
-        self.0.len() == 1 && self.0[0] == T::min_value()
-    }
 }
 
 impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
@@ -207,13 +280,8 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
         ))
     }
     /// intersection in place
-    pub fn intersection_with(&mut self, that: &Self) {
-        InPlaceMergeStateRef::merge(&mut self.0, &that.0, IntersectionOp);
-    }
-    /// intersection in place with archived rhs
-    #[cfg(feature = "rkyv")]
-    pub fn intersection_with_archived(&mut self, that: &ArchivedRangeSet<T>) {
-        InPlaceMergeStateRef::merge(&mut self.0, &that.0, IntersectionOp);
+    pub fn intersection_with(&mut self, that: &impl AbstractRangeSet<T>) {
+        InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), IntersectionOp);
     }
     /// union
     pub fn union(&self, that: &Self) -> Self {
@@ -224,13 +292,8 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
         ))
     }
     /// union in place
-    pub fn union_with(&mut self, that: &Self) {
-        InPlaceMergeStateRef::merge(&mut self.0, &that.0, UnionOp);
-    }
-    /// union in place with archived rhs
-    #[cfg(feature = "rkyv")]
-    pub fn union_with_archived(&mut self, that: &ArchivedRangeSet<T>) {
-        InPlaceMergeStateRef::merge(&mut self.0, &that.0, UnionOp);
+    pub fn union_with(&mut self, that: &impl AbstractRangeSet<T>) {
+        InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), UnionOp);
     }
     /// difference
     pub fn difference(&self, that: &Self) -> Self {
@@ -241,13 +304,8 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
         ))
     }
     /// difference in place
-    pub fn difference_with(&mut self, that: &Self) {
-        InPlaceMergeStateRef::merge(&mut self.0, &that.0, DiffOp);
-    }
-    /// difference in place with archived rhs
-    #[cfg(feature = "rkyv")]
-    pub fn difference_with_archived(&mut self, that: &ArchivedRangeSet<T>) {
-        InPlaceMergeStateRef::merge(&mut self.0, &that.0, DiffOp);
+    pub fn difference_with(&mut self, that: &impl AbstractRangeSet<T>) {
+        InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), DiffOp);
     }
     /// symmetric difference (xor)
     pub fn symmetric_difference(&self, that: &Self) -> Self {
@@ -258,13 +316,8 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
         ))
     }
     /// symmetric difference in place (xor)
-    pub fn symmetric_difference_with(&mut self, that: &Self) {
-        InPlaceMergeStateRef::merge(&mut self.0, &that.0, XorOp);
-    }
-    /// symmetric difference in place with archived rhs
-    #[cfg(feature = "rkyv")]
-    pub fn symmetric_difference_with_archived(&mut self, that: &ArchivedRangeSet<T>) {
-        InPlaceMergeStateRef::merge(&mut self.0, &that.0, XorOp);
+    pub fn symmetric_difference_with(&mut self, that: &impl AbstractRangeSet<T>) {
+        InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), XorOp);
     }
 }
 
@@ -287,33 +340,6 @@ impl<T: Ord + MinValue, A: Array<Item = T>> RangeSet<T, A> {
             Self::new(t)
         } else {
             Self::empty()
-        }
-    }
-
-    /// true if this range set is disjoint from another range set
-    pub fn is_disjoint(&self, that: &Self) -> bool {
-        !RangeSetBoolOpMergeState::merge(self.0.as_slice(), that.0.as_slice(), IntersectionOp)
-    }
-
-    /// true if this range set is a superset of another range set
-    ///
-    /// A range set is considered to be a superset of itself
-    pub fn is_superset(&self, that: &Self) -> bool {
-        that.is_subset(self)
-    }
-
-    /// true if this range set is a subset of another range set
-    ///
-    /// A range set is considered to be a subset of itself
-    pub fn is_subset(&self, that: &Self) -> bool {
-        !RangeSetBoolOpMergeState::merge(self.0.as_slice(), that.0.as_slice(), DiffOp)
-    }
-
-    /// true if the value is contained in the range set
-    pub fn contains(&self, value: &T) -> bool {
-        match self.0.binary_search(value) {
-            Ok(index) => !is_odd(index),
-            Err(index) => is_odd(index),
         }
     }
 }
