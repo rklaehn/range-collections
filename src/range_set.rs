@@ -1,4 +1,4 @@
-// #![deny(missing_docs)]
+#![deny(missing_docs)]
 
 //! A set of non-overlapping ranges
 use crate::binary_merge::{EarlyOut, MergeOperation, MergeStateRead};
@@ -13,14 +13,15 @@ use core::ops::{
     RangeFrom, RangeTo, Sub, SubAssign,
 };
 use num_traits::{Bounded, PrimInt};
-#[cfg(feature = "serde")]
-use serde::{
-    de::{Deserialize, Deserializer, SeqAccess, Visitor},
-    ser::{Serialize, SerializeSeq, Serializer},
-};
 use smallvec::{Array, SmallVec};
 #[cfg(feature = "serde")]
-use std::marker::PhantomData;
+use {
+    serde::{
+        de::{Deserialize, Deserializer, SeqAccess, Visitor},
+        ser::{Serialize, SerializeSeq, Serializer},
+    },
+    std::marker::PhantomData,
+};
 
 /// # A set of non-overlapping ranges
 ///
@@ -197,6 +198,7 @@ impl<T: MinValue + Ord, A: Array<Item = T>> RangeSet<T, A> {
 }
 
 impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
+    /// intersection
     pub fn intersection(&self, that: &Self) -> Self {
         Self::new(VecMergeState::merge(
             self.0.as_slice(),
@@ -204,9 +206,16 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
             IntersectionOp,
         ))
     }
+    /// intersection in place
     pub fn intersection_with(&mut self, that: &Self) {
         InPlaceMergeStateRef::merge(&mut self.0, &that.0, IntersectionOp);
     }
+    /// intersection in place with archived rhs
+    #[cfg(feature = "rkyv")]
+    pub fn intersection_with_archived(&mut self, that: &ArchivedRangeSet<T>) {
+        InPlaceMergeStateRef::merge(&mut self.0, &that.0, IntersectionOp);
+    }
+    /// union
     pub fn union(&self, that: &Self) -> Self {
         Self::new(VecMergeState::merge(
             self.0.as_slice(),
@@ -214,9 +223,16 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
             UnionOp,
         ))
     }
+    /// union in place
     pub fn union_with(&mut self, that: &Self) {
         InPlaceMergeStateRef::merge(&mut self.0, &that.0, UnionOp);
     }
+    /// union in place with archived rhs
+    #[cfg(feature = "rkyv")]
+    pub fn union_with_archived(&mut self, that: &ArchivedRangeSet<T>) {
+        InPlaceMergeStateRef::merge(&mut self.0, &that.0, UnionOp);
+    }
+    /// difference
     pub fn difference(&self, that: &Self) -> Self {
         Self::new(VecMergeState::merge(
             self.0.as_slice(),
@@ -224,9 +240,16 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
             DiffOp,
         ))
     }
+    /// difference in place
     pub fn difference_with(&mut self, that: &Self) {
         InPlaceMergeStateRef::merge(&mut self.0, &that.0, DiffOp);
     }
+    /// difference in place with archived rhs
+    #[cfg(feature = "rkyv")]
+    pub fn difference_with_archived(&mut self, that: &ArchivedRangeSet<T>) {
+        InPlaceMergeStateRef::merge(&mut self.0, &that.0, DiffOp);
+    }
+    /// symmetric difference (xor)
     pub fn symmetric_difference(&self, that: &Self) -> Self {
         Self::new(VecMergeState::merge(
             self.0.as_slice(),
@@ -234,7 +257,13 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
             XorOp,
         ))
     }
+    /// symmetric difference in place (xor)
     pub fn symmetric_difference_with(&mut self, that: &Self) {
+        InPlaceMergeStateRef::merge(&mut self.0, &that.0, XorOp);
+    }
+    /// symmetric difference in place with archived rhs
+    #[cfg(feature = "rkyv")]
+    pub fn symmetric_difference_with_archived(&mut self, that: &ArchivedRangeSet<T>) {
         InPlaceMergeStateRef::merge(&mut self.0, &that.0, XorOp);
     }
 }
@@ -323,14 +352,6 @@ impl<T: Ord, A: Array<Item = T>> BitAndAssign for RangeSet<T, A> {
     }
 }
 
-// impl<T: Ord, A: Array<Item = T>> BitAnd for RangeSet<T, A> {
-//     type Output = Self;
-//     fn bitand(mut self, that: Self) -> Self::Output {
-//         self &= that;
-//         self
-//     }
-// }
-
 /// compute the union of this range set with another, producing a new range set
 ///
 /// &forall; t &isin; T, r(t) = a(t) | b(t)
@@ -346,14 +367,6 @@ impl<T: Ord, A: Array<Item = T>> BitOrAssign for RangeSet<T, A> {
         InPlaceMergeState::merge(&mut self.0, that.0, UnionOp);
     }
 }
-
-// impl<T: Ord, A: Array<Item = T>> BitOr for RangeSet<T, A> {
-//     type Output = Self;
-//     fn bitor(mut self, that: Self) -> Self::Output {
-//         self |= that;
-//         self
-//     }
-// }
 
 /// compute the exclusive or of this range set with another, producing a new range set
 ///
@@ -371,14 +384,6 @@ impl<T: Ord + MinValue, A: Array<Item = T>> BitXorAssign for RangeSet<T, A> {
     }
 }
 
-// impl<T: Ord, A: Array<Item = T>> BitXor for RangeSet<T, A> {
-//     type Output = Self;
-//     fn bitxor(mut self, that: Self) -> Self::Output {
-//         self ^= that;
-//         self
-//     }
-// }
-
 /// compute the difference of this range set with another, producing a new range set
 ///
 /// &forall; t &isin; T, r(t) = a(t) & !b(t)
@@ -394,14 +399,6 @@ impl<T: Ord, A: Array<Item = T>> SubAssign for RangeSet<T, A> {
         InPlaceMergeState::merge(&mut self.0, that.0, DiffOp);
     }
 }
-
-// impl<T: Ord, A: Array<Item = T>> Sub for RangeSet<T, A> {
-//     type Output = Self;
-//     fn sub(mut self, that: Self) -> Self::Output {
-//         self -= that;
-//         self
-//     }
-// }
 
 /// compute the negation of this range set
 ///
@@ -737,7 +734,6 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for XorOp {
 mod tests {
     use super::*;
     use crate::obey::*;
-    use num_traits::PrimInt;
     use quickcheck::*;
     use std::collections::BTreeSet;
     use std::ops::RangeBounds;

@@ -19,7 +19,7 @@ bytecheck = { version = "0.6.5", optional = true }
 num-traits = "0.2.8"
 
 [features]
-default = ["serde"]
+default = ["serde", "rkyv", "rkyv_validated"]
 rkyv_validated = ["rkyv", "bytecheck"]
 
 [dev-dependencies]

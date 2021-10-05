@@ -11,13 +11,13 @@ pub(crate) trait MergeStateMut: MergeStateRead {
         self.advance_a(1, copy)?;
         self.advance_b(1, false)
     }
-    /// Consume n elements of a
+    /// Consume n elements of a, and update ac
     fn advance_a(&mut self, n: usize, take: bool) -> EarlyOut;
-    /// Consume n elements of b
+    /// Consume n elements of b, and update bc
     fn advance_b(&mut self, n: usize, take: bool) -> EarlyOut;
 }
 
-/// An in place merge state where the rhs is an owned array
+/// An in place merge state where the rhs is an owned smallvec
 pub(crate) struct InPlaceMergeState<'a, A: Array, B: Array> {
     a: InPlaceSmallVecBuilder<'a, A>,
     b: smallvec::IntoIter<B>,
@@ -82,31 +82,31 @@ impl<'a, A: Array, B: Array> InPlaceMergeState<'a, A, B> {
 }
 
 /// An in place merge state where the rhs is a reference
-pub(crate) struct InPlaceMergeStateRef<'a, A: Array, B: Array> {
+pub(crate) struct InPlaceMergeStateRef<'a, A: Array, B> {
     a: InPlaceSmallVecBuilder<'a, A>,
-    b: std::slice::Iter<'a, B::Item>,
+    b: SliceIterator<'a, B>,
     ac: bool,
     bc: bool,
 }
 
-impl<'a, A: Array, B: Array> InPlaceMergeStateRef<'a, A, B> {
-    pub fn new(a: &'a mut SmallVec<A>, b: &'a SmallVec<B>) -> Self {
+impl<'a, A: Array, B> InPlaceMergeStateRef<'a, A, B> {
+    pub fn new(a: &'a mut SmallVec<A>, b: &'a impl AsRef<[B]>) -> Self {
         Self {
             a: a.into(),
-            b: b.iter(),
+            b: SliceIterator(b.as_ref()),
             ac: false,
             bc: false,
         }
     }
 }
 
-impl<'a, A: Array, B: Array> MergeStateRead for InPlaceMergeStateRef<'a, A, B> {
+impl<'a, A: Array, B> MergeStateRead for InPlaceMergeStateRef<'a, A, B> {
     type A = A::Item;
-    type B = B::Item;
+    type B = B;
     fn a_slice(&self) -> &[A::Item] {
         self.a.source_slice()
     }
-    fn b_slice(&self) -> &[B::Item] {
+    fn b_slice(&self) -> &[B] {
         self.b.as_slice()
     }
     fn ac(&self) -> bool {
@@ -117,7 +117,7 @@ impl<'a, A: Array, B: Array> MergeStateRead for InPlaceMergeStateRef<'a, A, B> {
     }
 }
 
-impl<'a, A: Array> MergeStateMut for InPlaceMergeStateRef<'a, A, A>
+impl<'a, A: Array> MergeStateMut for InPlaceMergeStateRef<'a, A, A::Item>
 where
     A::Item: Clone,
 {
@@ -141,8 +141,8 @@ where
     }
 }
 
-impl<'a, A: Array, B: Array> InPlaceMergeStateRef<'a, A, B> {
-    pub fn merge<O: MergeOperation<Self>>(a: &'a mut SmallVec<A>, b: &'a SmallVec<B>, o: O) {
+impl<'a, A: Array, B: 'a> InPlaceMergeStateRef<'a, A, B> {
+    pub fn merge<O: MergeOperation<Self>>(a: &'a mut SmallVec<A>, b: &'a impl AsRef<[B]>, o: O) {
         let mut state = Self::new(a, b);
         o.merge(&mut state);
     }
