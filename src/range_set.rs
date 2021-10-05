@@ -205,7 +205,7 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
         ))
     }
     pub fn intersection_with(&mut self, that: &Self) {
-        RangeSetInPlaceMergeStateRef::merge(&mut self.0, &that.0, IntersectionOp);
+        InPlaceMergeStateRef::merge(&mut self.0, &that.0, IntersectionOp);
     }
     pub fn union(&self, that: &Self) -> Self {
         Self::new(VecMergeState::merge(
@@ -215,7 +215,7 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
         ))
     }
     pub fn union_with(&mut self, that: &Self) {
-        RangeSetInPlaceMergeStateRef::merge(&mut self.0, &that.0, UnionOp);
+        InPlaceMergeStateRef::merge(&mut self.0, &that.0, UnionOp);
     }
     pub fn difference(&self, that: &Self) -> Self {
         Self::new(VecMergeState::merge(
@@ -225,7 +225,7 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
         ))
     }
     pub fn difference_with(&mut self, that: &Self) {
-        RangeSetInPlaceMergeStateRef::merge(&mut self.0, &that.0, DiffOp);
+        InPlaceMergeStateRef::merge(&mut self.0, &that.0, DiffOp);
     }
     pub fn symmetric_difference(&self, that: &Self) -> Self {
         Self::new(VecMergeState::merge(
@@ -235,7 +235,7 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
         ))
     }
     pub fn symmetric_difference_with(&mut self, that: &Self) {
-        RangeSetInPlaceMergeStateRef::merge(&mut self.0, &that.0, XorOp);
+        InPlaceMergeStateRef::merge(&mut self.0, &that.0, XorOp);
     }
 }
 
@@ -319,7 +319,7 @@ impl<T: Ord + MinValue + Clone, A: Array<Item = T>> BitAnd for &RangeSet<T, A> {
 
 impl<T: Ord, A: Array<Item = T>> BitAndAssign for RangeSet<T, A> {
     fn bitand_assign(&mut self, that: Self) {
-        RangeSetInPlaceMergeState::merge(&mut self.0, that.0, IntersectionOp);
+        InPlaceMergeState::merge(&mut self.0, that.0, IntersectionOp);
     }
 }
 
@@ -343,7 +343,7 @@ impl<T: Ord + Clone + MinValue, A: Array<Item = T>> BitOr for &RangeSet<T, A> {
 
 impl<T: Ord, A: Array<Item = T>> BitOrAssign for RangeSet<T, A> {
     fn bitor_assign(&mut self, that: Self) {
-        RangeSetInPlaceMergeState::merge(&mut self.0, that.0, UnionOp);
+        InPlaceMergeState::merge(&mut self.0, that.0, UnionOp);
     }
 }
 
@@ -367,7 +367,7 @@ impl<T: Ord + Clone + MinValue, A: Array<Item = T>> BitXor for &RangeSet<T, A> {
 
 impl<T: Ord + MinValue, A: Array<Item = T>> BitXorAssign for RangeSet<T, A> {
     fn bitxor_assign(&mut self, that: Self) {
-        RangeSetInPlaceMergeState::merge(&mut self.0, that.0, XorOp);
+        InPlaceMergeState::merge(&mut self.0, that.0, XorOp);
     }
 }
 
@@ -391,7 +391,7 @@ impl<T: Ord + Clone + MinValue, A: Array<Item = T>> Sub for &RangeSet<T, A> {
 
 impl<T: Ord, A: Array<Item = T>> SubAssign for RangeSet<T, A> {
     fn sub_assign(&mut self, that: Self) {
-        RangeSetInPlaceMergeState::merge(&mut self.0, that.0, DiffOp);
+        InPlaceMergeState::merge(&mut self.0, that.0, DiffOp);
     }
 }
 
@@ -436,24 +436,13 @@ fn is_odd(x: usize) -> bool {
     (x & 1) != 0
 }
 
-trait RangeSetMergeState: MergeStateRead + MergeStateMut {
-    /// current state of a.
-    fn ac(&self) -> bool;
-    /// current state of b
-    fn bc(&self) -> bool;
-}
-
 struct RangeSetBoolOpMergeState<'a, T> {
     inner: BoolOpMergeState<'a, T, T>,
-    ac: bool,
-    bc: bool,
 }
 
 impl<'a, T> RangeSetBoolOpMergeState<'a, T> {
     fn merge<O: MergeOperation<Self>>(a: &'a [T], b: &'a [T], o: O) -> bool {
         let mut state = Self {
-            ac: false,
-            bc: false,
             inner: BoolOpMergeState::new(a, b),
         };
         o.merge(&mut state);
@@ -463,21 +452,10 @@ impl<'a, T> RangeSetBoolOpMergeState<'a, T> {
 
 impl<'a, T> MergeStateMut for RangeSetBoolOpMergeState<'a, T> {
     fn advance_a(&mut self, n: usize, copy: bool) -> EarlyOut {
-        self.ac ^= is_odd(n);
         self.inner.advance_a(n, copy)
     }
     fn advance_b(&mut self, n: usize, copy: bool) -> EarlyOut {
-        self.bc ^= is_odd(n);
         self.inner.advance_b(n, copy)
-    }
-}
-
-impl<'a, T> RangeSetMergeState for RangeSetBoolOpMergeState<'a, T> {
-    fn ac(&self) -> bool {
-        self.ac
-    }
-    fn bc(&self) -> bool {
-        self.bc
     }
 }
 
@@ -490,19 +468,23 @@ impl<'a, T> MergeStateRead for RangeSetBoolOpMergeState<'a, T> {
     fn b_slice(&self) -> &[T] {
         self.inner.b_slice()
     }
+
+    fn ac(&self) -> bool {
+        self.inner.ac()
+    }
+
+    fn bc(&self) -> bool {
+        self.inner.bc()
+    }
 }
 
 struct VecMergeState<'a, T, A: Array> {
     inner: SmallVecMergeState<'a, T, T, A>,
-    ac: bool,
-    bc: bool,
 }
 
 impl<'a, T: Clone, A: Array<Item = T>> VecMergeState<'a, T, A> {
     fn merge<O: MergeOperation<Self>>(a: &'a [T], b: &'a [T], o: O) -> SmallVec<A> {
         let mut state = Self {
-            ac: false,
-            bc: false,
             inner: SmallVecMergeState::new(a, b, SmallVec::new()),
         };
         o.merge(&mut state);
@@ -512,21 +494,10 @@ impl<'a, T: Clone, A: Array<Item = T>> VecMergeState<'a, T, A> {
 
 impl<'a, T: Clone, A: Array<Item = T>> MergeStateMut for VecMergeState<'a, T, A> {
     fn advance_a(&mut self, n: usize, copy: bool) -> EarlyOut {
-        self.ac ^= is_odd(n);
         self.inner.advance_a(n, copy)
     }
     fn advance_b(&mut self, n: usize, copy: bool) -> EarlyOut {
-        self.bc ^= is_odd(n);
         self.inner.advance_b(n, copy)
-    }
-}
-
-impl<'a, T: Clone, A: Array<Item = T>> RangeSetMergeState for VecMergeState<'a, T, A> {
-    fn ac(&self) -> bool {
-        self.ac
-    }
-    fn bc(&self) -> bool {
-        self.bc
     }
 }
 
@@ -539,104 +510,11 @@ impl<'a, T, A: Array<Item = T>> MergeStateRead for VecMergeState<'a, T, A> {
     fn b_slice(&self) -> &[T] {
         self.inner.b_slice()
     }
-}
-
-struct RangeSetInPlaceMergeState<'a, A: Array> {
-    inner: InPlaceMergeState<'a, A, A>,
-    ac: bool,
-    bc: bool,
-}
-
-impl<'a, T, A: Array<Item = T>> RangeSetInPlaceMergeState<'a, A> {
-    pub fn merge<O: MergeOperation<Self>>(a: &'a mut SmallVec<A>, b: SmallVec<A>, o: O) {
-        let mut state = Self {
-            ac: false,
-            bc: false,
-            inner: InPlaceMergeState::new(a, b),
-        };
-        o.merge(&mut state);
-    }
-}
-
-impl<'a, T, A: Array<Item = T>> MergeStateRead for RangeSetInPlaceMergeState<'a, A> {
-    type A = T;
-    type B = T;
-    fn a_slice(&self) -> &[T] {
-        self.inner.a_slice()
-    }
-    fn b_slice(&self) -> &[T] {
-        self.inner.b_slice()
-    }
-}
-
-impl<'a, T, A: Array<Item = T>> MergeStateMut for RangeSetInPlaceMergeState<'a, A> {
-    fn advance_a(&mut self, n: usize, copy: bool) -> EarlyOut {
-        self.ac ^= is_odd(n);
-        self.inner.advance_a(n, copy)
-    }
-    fn advance_b(&mut self, n: usize, copy: bool) -> EarlyOut {
-        self.bc ^= is_odd(n);
-        self.inner.advance_b(n, copy)
-    }
-}
-
-impl<'a, A: Array> RangeSetMergeState for RangeSetInPlaceMergeState<'a, A> {
     fn ac(&self) -> bool {
-        self.ac
+        self.inner.ac()
     }
     fn bc(&self) -> bool {
-        self.bc
-    }
-}
-
-struct RangeSetInPlaceMergeStateRef<'a, A: Array> {
-    inner: InPlaceMergeStateRef<'a, A, A>,
-    ac: bool,
-    bc: bool,
-}
-
-impl<'a, T: 'a, A: Array<Item = T>> RangeSetInPlaceMergeStateRef<'a, A> {
-    pub fn merge<O: MergeOperation<Self>>(a: &'a mut SmallVec<A>, b: &'a SmallVec<A>, o: O) {
-        let mut state = Self {
-            ac: false,
-            bc: false,
-            inner: InPlaceMergeStateRef::new(a, b),
-        };
-        o.merge(&mut state);
-    }
-}
-
-impl<'a, T, A: Array<Item = T>> MergeStateRead for RangeSetInPlaceMergeStateRef<'a, A> {
-    type A = T;
-    type B = T;
-    fn a_slice(&self) -> &[T] {
-        self.inner.a_slice()
-    }
-    fn b_slice(&self) -> &[T] {
-        self.inner.b_slice()
-    }
-}
-
-impl<'a, T: Clone, A: Array<Item = T>> MergeStateMut for RangeSetInPlaceMergeStateRef<'a, A> {
-    fn advance_a(&mut self, n: usize, copy: bool) -> EarlyOut {
-        self.ac ^= is_odd(n);
-        self.inner.advance_a(n, copy)
-    }
-    fn advance_b(&mut self, n: usize, copy: bool) -> EarlyOut {
-        self.bc ^= is_odd(n);
-        self.inner.advance_b(n, copy)
-    }
-}
-
-impl<'a, A: Array> RangeSetMergeState for RangeSetInPlaceMergeStateRef<'a, A>
-where
-    A::Item: Clone,
-{
-    fn ac(&self) -> bool {
-        self.ac
-    }
-    fn bc(&self) -> bool {
-        self.bc
+        self.inner.bc()
     }
 }
 
@@ -795,7 +673,7 @@ struct IntersectionOp;
 struct XorOp;
 struct DiffOp;
 
-impl<'a, T: Ord, M: RangeSetMergeState<A = T, B = T>> MergeOperation<M> for UnionOp {
+impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for UnionOp {
     fn from_a(&self, m: &mut M, n: usize) -> EarlyOut {
         m.advance_a(n, !m.bc())
     }
@@ -810,7 +688,7 @@ impl<'a, T: Ord, M: RangeSetMergeState<A = T, B = T>> MergeOperation<M> for Unio
     }
 }
 
-impl<'a, T: Ord, M: RangeSetMergeState<A = T, B = T>> MergeOperation<M> for IntersectionOp {
+impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for IntersectionOp {
     fn from_a(&self, m: &mut M, n: usize) -> EarlyOut {
         m.advance_a(n, m.bc())
     }
@@ -825,7 +703,7 @@ impl<'a, T: Ord, M: RangeSetMergeState<A = T, B = T>> MergeOperation<M> for Inte
     }
 }
 
-impl<'a, T: Ord, M: RangeSetMergeState<A = T, B = T>> MergeOperation<M> for DiffOp {
+impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for DiffOp {
     fn from_a(&self, m: &mut M, n: usize) -> EarlyOut {
         m.advance_a(n, !m.bc())
     }
@@ -840,7 +718,7 @@ impl<'a, T: Ord, M: RangeSetMergeState<A = T, B = T>> MergeOperation<M> for Diff
     }
 }
 
-impl<'a, T: Ord, M: RangeSetMergeState<A = T, B = T>> MergeOperation<M> for XorOp {
+impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for XorOp {
     fn from_a(&self, m: &mut M, n: usize) -> EarlyOut {
         m.advance_a(n, true)
     }
