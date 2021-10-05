@@ -1,6 +1,6 @@
 use crate::binary_merge::{EarlyOut, MergeOperation, MergeStateRead};
 use crate::iterators::SliceIterator;
-use crate::small_vec_builder::{InPlaceSmallVecBuilder, SmallVecIntoIter};
+use crate::small_vec_builder::InPlaceSmallVecBuilder;
 use core::fmt::Debug;
 use smallvec::{Array, SmallVec};
 
@@ -19,14 +19,14 @@ pub(crate) trait MergeStateMut: MergeStateRead {
 
 pub(crate) struct InPlaceMergeState<'a, A: Array, B: Array> {
     pub a: InPlaceSmallVecBuilder<'a, A>,
-    pub b: SmallVecIntoIter<B>,
+    pub b: smallvec::IntoIter<B>,
 }
 
 impl<'a, A: Array, B: Array> InPlaceMergeState<'a, A, B> {
     pub fn new(a: &'a mut SmallVec<A>, b: SmallVec<B>) -> Self {
         Self {
             a: a.into(),
-            b: SmallVecIntoIter::new(b),
+            b: b.into_iter(),
         }
     }
 }
@@ -63,6 +63,60 @@ impl<'a, A: Array> MergeStateMut for InPlaceMergeState<'a, A, A> {
 
 impl<'a, A: Array, B: Array> InPlaceMergeState<'a, A, B> {
     pub fn merge<O: MergeOperation<Self>>(a: &'a mut SmallVec<A>, b: SmallVec<B>, o: O) {
+        let mut state = Self::new(a, b);
+        o.merge(&mut state);
+    }
+}
+
+pub(crate) struct InPlaceMergeStateRef<'a, A: Array, B: Array> {
+    pub a: InPlaceSmallVecBuilder<'a, A>,
+    pub b: std::slice::Iter<'a, B::Item>,
+}
+
+impl<'a, A: Array, B: Array> InPlaceMergeStateRef<'a, A, B> {
+    pub fn new(a: &'a mut SmallVec<A>, b: &'a SmallVec<B>) -> Self {
+        Self {
+            a: a.into(),
+            b: b.iter(),
+        }
+    }
+}
+
+impl<'a, A: Array, B: Array> MergeStateRead for InPlaceMergeStateRef<'a, A, B> {
+    type A = A::Item;
+    type B = B::Item;
+    fn a_slice(&self) -> &[A::Item] {
+        self.a.source_slice()
+    }
+    fn b_slice(&self) -> &[B::Item] {
+        self.b.as_slice()
+    }
+}
+
+impl<'a, A: Array> MergeStateMut for InPlaceMergeStateRef<'a, A, A>
+where
+    A::Item: Clone,
+{
+    #[inline]
+    fn advance_a(&mut self, n: usize, take: bool) -> EarlyOut {
+        self.a.consume(n, take);
+        Some(())
+    }
+    #[inline]
+    fn advance_b(&mut self, n: usize, take: bool) -> EarlyOut {
+        if take {
+            self.a.extend_from_ref_iter(&mut self.b, n);
+        } else {
+            for _ in 0..n {
+                let _ = self.b.next();
+            }
+        }
+        Some(())
+    }
+}
+
+impl<'a, A: Array, B: Array> InPlaceMergeStateRef<'a, A, B> {
+    pub fn merge<O: MergeOperation<Self>>(a: &'a mut SmallVec<A>, b: &'a SmallVec<B>, o: O) {
         let mut state = Self::new(a, b);
         o.merge(&mut state);
     }

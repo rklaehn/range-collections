@@ -16,6 +16,7 @@ smallvec = "1.0"
 serde = { version = "1", optional = true, default-features = false }
 rkyv = { version = "0.7.18", optional = true }
 bytecheck = { version = "0.6.5", optional = true }
+num-traits = "0.2.8"
 
 [features]
 default = ["serde"]
@@ -25,7 +26,6 @@ rkyv_validated = ["rkyv", "bytecheck"]
 quickcheck = "0.8"
 quickcheck_macros = "0.8.0"
 testdrop = "0.1.2"
-num-traits = "0.2.8"
 criterion = "0.3.0"
 rand = "0.7.2"
 serde_cbor = "0.11.1"

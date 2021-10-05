@@ -1,8 +1,10 @@
-#![deny(missing_docs)]
+// #![deny(missing_docs)]
 
 //! A set of non-overlapping ranges
 use crate::binary_merge::{EarlyOut, MergeOperation, MergeStateRead};
-use crate::merge_state::{BoolOpMergeState, InPlaceMergeState, MergeStateMut, SmallVecMergeState};
+use crate::merge_state::{
+    BoolOpMergeState, InPlaceMergeState, InPlaceMergeStateRef, MergeStateMut, SmallVecMergeState,
+};
 use core::cmp::Ordering;
 use core::fmt;
 use core::fmt::Debug;
@@ -10,6 +12,7 @@ use core::ops::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Bound::*, Not, Range,
     RangeFrom, RangeTo, Sub, SubAssign,
 };
+use num_traits::{Bounded, PrimInt};
 #[cfg(feature = "serde")]
 use serde::{
     de::{Deserialize, Deserializer, SeqAccess, Visitor},
@@ -85,10 +88,7 @@ use std::marker::PhantomData;
 ///
 /// Testing is done by some simple smoke tests as well as quickcheck tests of the algebraic properties of the boolean operations.
 #[derive(Clone, PartialEq, Eq)]
-pub struct RangeSet<T, A: Array<Item = T> = [T; 2]> {
-    below_all: bool,
-    boundaries: SmallVec<A>,
-}
+pub struct RangeSet<T, A: Array<Item = T> = [T; 2]>(SmallVec<A>);
 
 impl<T: Debug, A: Array<Item = T>> Debug for RangeSet<T, A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -110,28 +110,19 @@ impl<T: Debug, A: Array<Item = T>> Debug for RangeSet<T, A> {
 }
 
 /// Iterator for the ranges in a range set
-pub struct Iter<'a, T>(bool, &'a [T]);
+pub struct Iter<'a, T>(&'a [T]);
 
 impl<'a, T> Iterator for Iter<'a, T> {
     type Item = (Bound<&'a T>, Bound<&'a T>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (ul, bounds) = (self.0, self.1);
-        if !bounds.is_empty() || ul {
-            Some(if ul {
-                self.0 = false;
-                match bounds.split_first() {
-                    None => (Unbounded, Unbounded),
-                    Some((b, bs)) => {
-                        self.1 = bs;
-                        (Unbounded, Excluded(b))
-                    }
-                }
-            } else if bounds.len() == 1 {
-                self.1 = &bounds[1..];
+        let bounds = self.0;
+        if !bounds.is_empty() {
+            Some(if bounds.len() == 1 {
+                self.0 = &bounds[1..];
                 (Included(&bounds[0]), Unbounded)
             } else {
-                self.1 = &bounds[2..];
+                self.0 = &bounds[2..];
                 (Included(&bounds[0]), Excluded(&bounds[1]))
             })
         } else {
@@ -140,71 +131,131 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
+/// trait for types that have a smallest value
+pub trait MinValue {
+    /// the minimum value for this type
+    fn min_value() -> Self;
+}
+
+impl<T: PrimInt> MinValue for T {
+    fn min_value() -> Self {
+        <T as Bounded>::min_value()
+    }
+}
+
 impl<T, A: Array<Item = T>> RangeSet<T, A> {
     /// note that this is private since it does not check the invariants!
-    fn new(below_all: bool, boundaries: SmallVec<A>) -> Self {
-        RangeSet {
-            below_all,
-            boundaries,
-        }
+    fn new(boundaries: SmallVec<A>) -> Self {
+        RangeSet(boundaries)
     }
+
     /// iterate over all ranges in this range set
     pub fn iter(&self) -> Iter<T> {
-        Iter(self.below_all, self.boundaries.as_slice())
+        Iter(self.0.as_slice())
     }
+    /// boundaries in this range set
+    pub fn boundaries(&self) -> &SmallVec<A> {
+        &self.0
+    }
+    /// get the boundaries in this range set as a SmallVec
+    pub fn into_inner(self) -> SmallVec<A> {
+        self.0
+    }
+}
+
+impl<T: MinValue + Ord, A: Array<Item = T>> RangeSet<T, A> {
     fn from_range_until(a: T) -> Self {
         let mut t = SmallVec::new();
-        t.push(a);
-        Self::new(true, t)
+        let min = T::min_value();
+        if a > min {
+            t.push(min);
+            t.push(a);
+        }
+        Self::new(t)
     }
     fn from_range_from(a: T) -> Self {
         let mut t = SmallVec::new();
         t.push(a);
-        Self::new(false, t)
-    }
-    /// boundaries in this range set
-    pub fn boundaries(&self) -> &SmallVec<A> {
-        &self.boundaries
-    }
-    /// get the boundaries in this range set as a SmallVec
-    pub fn into_inner(self) -> SmallVec<A> {
-        self.boundaries
+        Self::new(t)
     }
     /// the empty range set
     pub fn empty() -> Self {
-        false.into()
+        Self(SmallVec::new())
     }
     /// a range set containing all values
     pub fn all() -> Self {
-        true.into()
-    }
-    /// a range set with a constant value everywhere
-    pub fn constant(value: bool) -> Self {
-        value.into()
+        Self::from_range_from(T::min_value())
     }
     /// true if the range set is empty
     pub fn is_empty(&self) -> bool {
-        !self.below_all && self.boundaries.is_empty()
+        self.0.is_empty()
     }
     /// true if the range set contains all values
     pub fn is_all(&self) -> bool {
-        self.below_all && self.boundaries.is_empty()
+        self.0.len() == 1 && self.0[0] == T::min_value()
     }
 }
 
-impl<T, A: Array<Item = T>> From<bool> for RangeSet<T, A> {
+impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
+    pub fn intersection(&self, that: &Self) -> Self {
+        Self::new(VecMergeState::merge(
+            self.0.as_slice(),
+            that.0.as_slice(),
+            IntersectionOp,
+        ))
+    }
+    pub fn intersection_with(&mut self, that: &Self) {
+        RangeSetInPlaceMergeStateRef::merge(&mut self.0, &that.0, IntersectionOp);
+    }
+    pub fn union(&self, that: &Self) -> Self {
+        Self::new(VecMergeState::merge(
+            self.0.as_slice(),
+            that.0.as_slice(),
+            UnionOp,
+        ))
+    }
+    pub fn union_with(&mut self, that: &Self) {
+        RangeSetInPlaceMergeStateRef::merge(&mut self.0, &that.0, UnionOp);
+    }
+    pub fn difference(&self, that: &Self) -> Self {
+        Self::new(VecMergeState::merge(
+            self.0.as_slice(),
+            that.0.as_slice(),
+            DiffOp,
+        ))
+    }
+    pub fn difference_with(&mut self, that: &Self) {
+        RangeSetInPlaceMergeStateRef::merge(&mut self.0, &that.0, DiffOp);
+    }
+    pub fn symmetric_difference(&self, that: &Self) -> Self {
+        Self::new(VecMergeState::merge(
+            self.0.as_slice(),
+            that.0.as_slice(),
+            XorOp,
+        ))
+    }
+    pub fn symmetric_difference_with(&mut self, that: &Self) {
+        RangeSetInPlaceMergeStateRef::merge(&mut self.0, &that.0, XorOp);
+    }
+}
+
+impl<T: MinValue + Ord, A: Array<Item = T>> From<bool> for RangeSet<T, A> {
     fn from(value: bool) -> Self {
-        Self::new(value, SmallVec::new())
+        if value {
+            Self::all()
+        } else {
+            Self::empty()
+        }
     }
 }
 
-impl<T: Ord, A: Array<Item = T>> RangeSet<T, A> {
+impl<T: Ord + MinValue, A: Array<Item = T>> RangeSet<T, A> {
     fn from_range(a: Range<T>) -> Self {
         if a.start < a.end {
             let mut t = SmallVec::new();
             t.push(a.start);
             t.push(a.end);
-            Self::new(false, t)
+            Self::new(t)
         } else {
             Self::empty()
         }
@@ -212,14 +263,7 @@ impl<T: Ord, A: Array<Item = T>> RangeSet<T, A> {
 
     /// true if this range set is disjoint from another range set
     pub fn is_disjoint(&self, that: &Self) -> bool {
-        !(self.below_all & that.below_all)
-            && !RangeSetBoolOpMergeState::merge(
-                self.below_all,
-                self.boundaries.as_slice(),
-                that.below_all,
-                that.boundaries.as_slice(),
-                IntersectionOp,
-            )
+        !RangeSetBoolOpMergeState::merge(self.0.as_slice(), that.0.as_slice(), IntersectionOp)
     }
 
     /// true if this range set is a superset of another range set
@@ -233,38 +277,31 @@ impl<T: Ord, A: Array<Item = T>> RangeSet<T, A> {
     ///
     /// A range set is considered to be a subset of itself
     pub fn is_subset(&self, that: &Self) -> bool {
-        !(self.below_all & !that.below_all)
-            && !RangeSetBoolOpMergeState::merge(
-                self.below_all,
-                self.boundaries.as_slice(),
-                that.below_all,
-                that.boundaries.as_slice(),
-                DiffOp,
-            )
+        !RangeSetBoolOpMergeState::merge(self.0.as_slice(), that.0.as_slice(), DiffOp)
     }
 
     /// true if the value is contained in the range set
     pub fn contains(&self, value: &T) -> bool {
-        match self.boundaries.binary_search(value) {
-            Ok(index) => self.below_all ^ !is_odd(index),
-            Err(index) => self.below_all ^ is_odd(index),
+        match self.0.binary_search(value) {
+            Ok(index) => !is_odd(index),
+            Err(index) => is_odd(index),
         }
     }
 }
 
-impl<T: Ord, A: Array<Item = T>> From<Range<T>> for RangeSet<T, A> {
+impl<T: Ord + MinValue, A: Array<Item = T>> From<Range<T>> for RangeSet<T, A> {
     fn from(value: Range<T>) -> Self {
         Self::from_range(value)
     }
 }
 
-impl<T: Ord, A: Array<Item = T>> From<RangeFrom<T>> for RangeSet<T, A> {
+impl<T: Ord + MinValue, A: Array<Item = T>> From<RangeFrom<T>> for RangeSet<T, A> {
     fn from(value: RangeFrom<T>) -> Self {
         Self::from_range_from(value.start)
     }
 }
 
-impl<T: Ord, A: Array<Item = T>> From<RangeTo<T>> for RangeSet<T, A> {
+impl<T: Ord + MinValue, A: Array<Item = T>> From<RangeTo<T>> for RangeSet<T, A> {
     fn from(value: RangeTo<T>) -> Self {
         Self::from_range_until(value.end)
     }
@@ -273,32 +310,16 @@ impl<T: Ord, A: Array<Item = T>> From<RangeTo<T>> for RangeSet<T, A> {
 /// compute the intersection of this range set with another, producing a new range set
 ///
 /// &forall; t &isin; T, r(t) = a(t) & b(t)
-impl<T: Ord + Clone, A: Array<Item = T>> BitAnd for &RangeSet<T, A> {
+impl<T: Ord + MinValue + Clone, A: Array<Item = T>> BitAnd for &RangeSet<T, A> {
     type Output = RangeSet<T, A>;
     fn bitand(self, that: Self) -> Self::Output {
-        Self::Output::new(
-            self.below_all & that.below_all,
-            VecMergeState::merge(
-                self.below_all,
-                self.boundaries.as_slice(),
-                that.below_all,
-                that.boundaries.as_slice(),
-                IntersectionOp,
-            ),
-        )
+        self.intersection(that)
     }
 }
 
 impl<T: Ord, A: Array<Item = T>> BitAndAssign for RangeSet<T, A> {
     fn bitand_assign(&mut self, that: Self) {
-        RangeSetInPlaceMergeState::merge(
-            &mut self.boundaries,
-            self.below_all,
-            that.boundaries,
-            that.below_all,
-            IntersectionOp,
-        );
-        self.below_all &= that.below_all;
+        RangeSetInPlaceMergeState::merge(&mut self.0, that.0, IntersectionOp);
     }
 }
 
@@ -313,32 +334,16 @@ impl<T: Ord, A: Array<Item = T>> BitAndAssign for RangeSet<T, A> {
 /// compute the union of this range set with another, producing a new range set
 ///
 /// &forall; t &isin; T, r(t) = a(t) | b(t)
-impl<T: Ord + Clone, A: Array<Item = T>> BitOr for &RangeSet<T, A> {
+impl<T: Ord + Clone + MinValue, A: Array<Item = T>> BitOr for &RangeSet<T, A> {
     type Output = RangeSet<T, A>;
     fn bitor(self, that: Self) -> Self::Output {
-        Self::Output::new(
-            self.below_all | that.below_all,
-            VecMergeState::merge(
-                self.below_all,
-                self.boundaries.as_slice(),
-                that.below_all,
-                that.boundaries.as_slice(),
-                UnionOp,
-            ),
-        )
+        self.union(that)
     }
 }
 
 impl<T: Ord, A: Array<Item = T>> BitOrAssign for RangeSet<T, A> {
     fn bitor_assign(&mut self, that: Self) {
-        RangeSetInPlaceMergeState::merge(
-            &mut self.boundaries,
-            self.below_all,
-            that.boundaries,
-            that.below_all,
-            UnionOp,
-        );
-        self.below_all |= that.below_all;
+        RangeSetInPlaceMergeState::merge(&mut self.0, that.0, UnionOp);
     }
 }
 
@@ -353,32 +358,16 @@ impl<T: Ord, A: Array<Item = T>> BitOrAssign for RangeSet<T, A> {
 /// compute the exclusive or of this range set with another, producing a new range set
 ///
 /// &forall; t &isin; T, r(t) = a(t) ^ b(t)
-impl<T: Ord + Clone, A: Array<Item = T>> BitXor for &RangeSet<T, A> {
+impl<T: Ord + Clone + MinValue, A: Array<Item = T>> BitXor for &RangeSet<T, A> {
     type Output = RangeSet<T, A>;
     fn bitxor(self, that: Self) -> Self::Output {
-        Self::Output::new(
-            self.below_all ^ that.below_all,
-            VecMergeState::merge(
-                self.below_all,
-                self.boundaries.as_slice(),
-                that.below_all,
-                that.boundaries.as_slice(),
-                XorOp,
-            ),
-        )
+        self.symmetric_difference(that)
     }
 }
 
-impl<T: Ord, A: Array<Item = T>> BitXorAssign for RangeSet<T, A> {
+impl<T: Ord + MinValue, A: Array<Item = T>> BitXorAssign for RangeSet<T, A> {
     fn bitxor_assign(&mut self, that: Self) {
-        RangeSetInPlaceMergeState::merge(
-            &mut self.boundaries,
-            self.below_all,
-            that.boundaries,
-            that.below_all,
-            XorOp,
-        );
-        self.below_all ^= that.below_all;
+        RangeSetInPlaceMergeState::merge(&mut self.0, that.0, XorOp);
     }
 }
 
@@ -393,32 +382,16 @@ impl<T: Ord, A: Array<Item = T>> BitXorAssign for RangeSet<T, A> {
 /// compute the difference of this range set with another, producing a new range set
 ///
 /// &forall; t &isin; T, r(t) = a(t) & !b(t)
-impl<T: Ord + Clone, A: Array<Item = T>> Sub for &RangeSet<T, A> {
+impl<T: Ord + Clone + MinValue, A: Array<Item = T>> Sub for &RangeSet<T, A> {
     type Output = RangeSet<T, A>;
     fn sub(self, that: Self) -> Self::Output {
-        Self::Output::new(
-            self.below_all & !that.below_all,
-            VecMergeState::merge(
-                self.below_all,
-                self.boundaries.as_slice(),
-                that.below_all,
-                that.boundaries.as_slice(),
-                DiffOp,
-            ),
-        )
+        self.difference(that)
     }
 }
 
 impl<T: Ord, A: Array<Item = T>> SubAssign for RangeSet<T, A> {
     fn sub_assign(&mut self, that: Self) {
-        RangeSetInPlaceMergeState::merge(
-            &mut self.boundaries,
-            self.below_all,
-            that.boundaries,
-            that.below_all,
-            DiffOp,
-        );
-        self.below_all &= !that.below_all;
+        RangeSetInPlaceMergeState::merge(&mut self.0, that.0, DiffOp);
     }
 }
 
@@ -433,20 +406,28 @@ impl<T: Ord, A: Array<Item = T>> SubAssign for RangeSet<T, A> {
 /// compute the negation of this range set
 ///
 /// &forall; t &isin; T, r(t) = !a(t)
-impl<T: Ord + Clone, A: Array<Item = T>> Not for RangeSet<T, A> {
+impl<T: Ord + Clone + MinValue, A: Array<Item = T>> Not for RangeSet<T, A> {
     type Output = RangeSet<T, A>;
-    fn not(self) -> Self::Output {
-        Self::new(!self.below_all, self.boundaries)
+    fn not(mut self) -> Self::Output {
+        match self.0.get(0) {
+            Some(x) if *x == T::min_value() => {
+                self.0.remove(0);
+            }
+            _ => {
+                self.0.insert(0, T::min_value());
+            }
+        }
+        self
     }
 }
 
 /// compute the negation of this range set
 ///
 /// &forall; t &isin; T, r(t) = !a(t)
-impl<T: Ord + Clone, A: Array<Item = T>> Not for &RangeSet<T, A> {
+impl<T: Ord + Clone + MinValue, A: Array<Item = T>> Not for &RangeSet<T, A> {
     type Output = RangeSet<T, A>;
     fn not(self) -> Self::Output {
-        Self::Output::new(!self.below_all, self.boundaries.clone())
+        self ^ &RangeSet::all()
     }
 }
 
@@ -469,10 +450,10 @@ struct RangeSetBoolOpMergeState<'a, T> {
 }
 
 impl<'a, T> RangeSetBoolOpMergeState<'a, T> {
-    fn merge<O: MergeOperation<Self>>(a0: bool, a: &'a [T], b0: bool, b: &'a [T], o: O) -> bool {
+    fn merge<O: MergeOperation<Self>>(a: &'a [T], b: &'a [T], o: O) -> bool {
         let mut state = Self {
-            ac: a0,
-            bc: b0,
+            ac: false,
+            bc: false,
             inner: BoolOpMergeState::new(a, b),
         };
         o.merge(&mut state);
@@ -518,16 +499,10 @@ struct VecMergeState<'a, T, A: Array> {
 }
 
 impl<'a, T: Clone, A: Array<Item = T>> VecMergeState<'a, T, A> {
-    fn merge<O: MergeOperation<Self>>(
-        a0: bool,
-        a: &'a [T],
-        b0: bool,
-        b: &'a [T],
-        o: O,
-    ) -> SmallVec<A> {
+    fn merge<O: MergeOperation<Self>>(a: &'a [T], b: &'a [T], o: O) -> SmallVec<A> {
         let mut state = Self {
-            ac: a0,
-            bc: b0,
+            ac: false,
+            bc: false,
             inner: SmallVecMergeState::new(a, b, SmallVec::new()),
         };
         o.merge(&mut state);
@@ -573,16 +548,10 @@ struct RangeSetInPlaceMergeState<'a, A: Array> {
 }
 
 impl<'a, T, A: Array<Item = T>> RangeSetInPlaceMergeState<'a, A> {
-    pub fn merge<O: MergeOperation<Self>>(
-        a: &'a mut SmallVec<A>,
-        a0: bool,
-        b: SmallVec<A>,
-        b0: bool,
-        o: O,
-    ) {
+    pub fn merge<O: MergeOperation<Self>>(a: &'a mut SmallVec<A>, b: SmallVec<A>, o: O) {
         let mut state = Self {
-            ac: a0,
-            bc: b0,
+            ac: false,
+            bc: false,
             inner: InPlaceMergeState::new(a, b),
         };
         o.merge(&mut state);
@@ -620,12 +589,62 @@ impl<'a, A: Array> RangeSetMergeState for RangeSetInPlaceMergeState<'a, A> {
     }
 }
 
+struct RangeSetInPlaceMergeStateRef<'a, A: Array> {
+    inner: InPlaceMergeStateRef<'a, A, A>,
+    ac: bool,
+    bc: bool,
+}
+
+impl<'a, T: 'a, A: Array<Item = T>> RangeSetInPlaceMergeStateRef<'a, A> {
+    pub fn merge<O: MergeOperation<Self>>(a: &'a mut SmallVec<A>, b: &'a SmallVec<A>, o: O) {
+        let mut state = Self {
+            ac: false,
+            bc: false,
+            inner: InPlaceMergeStateRef::new(a, b),
+        };
+        o.merge(&mut state);
+    }
+}
+
+impl<'a, T, A: Array<Item = T>> MergeStateRead for RangeSetInPlaceMergeStateRef<'a, A> {
+    type A = T;
+    type B = T;
+    fn a_slice(&self) -> &[T] {
+        self.inner.a_slice()
+    }
+    fn b_slice(&self) -> &[T] {
+        self.inner.b_slice()
+    }
+}
+
+impl<'a, T: Clone, A: Array<Item = T>> MergeStateMut for RangeSetInPlaceMergeStateRef<'a, A> {
+    fn advance_a(&mut self, n: usize, copy: bool) -> EarlyOut {
+        self.ac ^= is_odd(n);
+        self.inner.advance_a(n, copy)
+    }
+    fn advance_b(&mut self, n: usize, copy: bool) -> EarlyOut {
+        self.bc ^= is_odd(n);
+        self.inner.advance_b(n, copy)
+    }
+}
+
+impl<'a, A: Array> RangeSetMergeState for RangeSetInPlaceMergeStateRef<'a, A>
+where
+    A::Item: Clone,
+{
+    fn ac(&self) -> bool {
+        self.ac
+    }
+    fn bc(&self) -> bool {
+        self.bc
+    }
+}
+
 #[cfg(feature = "serde")]
 impl<T: Serialize, A: Array<Item = T>> Serialize for RangeSet<T, A> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_seq(Some(self.boundaries.len() + 1))?;
-        map.serialize_element(&self.below_all)?;
-        for x in self.boundaries.iter() {
+        let mut map = serializer.serialize_seq(Some(self.0.len()))?;
+        for x in self.0.iter() {
             map.serialize_element(x)?;
         }
         map.end()
@@ -662,19 +681,13 @@ where
         B: SeqAccess<'de>,
     {
         let len = seq.size_hint().unwrap_or(0);
-        let below_all = seq
-            .next_element()?
-            .ok_or_else(|| serde::de::Error::custom("expected bool as first element"))?;
-        let mut boundaries: SmallVec<A> = SmallVec::with_capacity(len.saturating_sub(1));
+        let mut boundaries: SmallVec<A> = SmallVec::with_capacity(len);
         while let Some(value) = seq.next_element::<A::Item>()? {
             boundaries.push(value);
         }
         boundaries.sort();
         boundaries.dedup();
-        Ok(RangeSet {
-            below_all,
-            boundaries,
-        })
+        Ok(RangeSet(boundaries))
     }
 }
 
@@ -689,12 +702,11 @@ where
     type Resolver = rkyv::vec::VecResolver;
 
     unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
-        (*out).below_all = self.below_all;
         rkyv::vec::ArchivedVec::resolve_from_slice(
-            self.boundaries.as_slice(),
+            self.0.as_slice(),
             pos,
             resolver,
-            &mut (*out).boundaries as *mut rkyv::vec::ArchivedVec<<T as rkyv::Archive>::Archived>,
+            &mut (*out).0 as *mut rkyv::vec::ArchivedVec<<T as rkyv::Archive>::Archived>,
         );
     }
 }
@@ -707,7 +719,7 @@ where
     A: Array<Item = T>,
 {
     fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
-        rkyv::vec::ArchivedVec::serialize_from_slice(self.boundaries.as_ref(), serializer)
+        rkyv::vec::ArchivedVec::serialize_from_slice(self.0.as_ref(), serializer)
     }
 }
 
@@ -721,29 +733,23 @@ where
 {
     fn deserialize(&self, deserializer: &mut D) -> Result<RangeSet<T, A>, D::Error> {
         // todo: replace this with SmallVec once smallvec support for rkyv lands on crates.io
-        let boundaries: Vec<T> = self.boundaries.deserialize(deserializer)?;
-        Ok(RangeSet {
-            below_all: self.below_all,
-            boundaries: boundaries.into(),
-        })
+        let boundaries: Vec<T> = self.0.deserialize(deserializer)?;
+        Ok(RangeSet(boundaries.into()))
     }
 }
 
 /// Archived version of a RangeSet
 #[cfg(feature = "rkyv")]
 #[derive(Debug)]
-pub struct ArchivedRangeSet<T> {
-    below_all: bool,
-    boundaries: rkyv::vec::ArchivedVec<T>,
-}
+#[repr(transparent)]
+pub struct ArchivedRangeSet<T>(rkyv::vec::ArchivedVec<T>);
 
 /// Validation error for a range set
 #[cfg(feature = "rkyv_validated")]
 #[derive(Debug)]
 pub enum ArchivedRangeSetError {
-    /// error with the individual fields of the ArchivedRangeSet, e.g a boolean
-    /// value that is neither 0u8 or 1u8
-    StructCheckError(bytecheck::StructCheckError),
+    /// error with the individual fields of the ArchivedRangeSet, e.g a NonZeroU64 with a value of 0
+    ValueCheckError,
     /// boundaries were not properly ordered
     OrderCheckError,
 }
@@ -770,20 +776,9 @@ where
         value: *const Self,
         context: &mut C,
     ) -> Result<&'a Self, Self::Error> {
-        let below_all = &(*value).below_all;
-        let boundaries = &(*value).boundaries;
-        bool::check_bytes(below_all, context).map_err(|e| {
-            ArchivedRangeSetError::StructCheckError(bytecheck::StructCheckError {
-                field_name: "below_all",
-                inner: bytecheck::ErrorBox::new(e),
-            })
-        })?;
-        rkyv::vec::ArchivedVec::<T>::check_bytes(boundaries, context).map_err(|e| {
-            ArchivedRangeSetError::StructCheckError(bytecheck::StructCheckError {
-                field_name: "boundaries",
-                inner: bytecheck::ErrorBox::new(e),
-            })
-        })?;
+        let boundaries = &(*value).0;
+        rkyv::vec::ArchivedVec::<T>::check_bytes(boundaries, context)
+            .map_err(|_| ArchivedRangeSetError::ValueCheckError)?;
         if !boundaries
             .iter()
             .zip(boundaries.iter().skip(1))
@@ -869,7 +864,7 @@ mod tests {
     use std::collections::BTreeSet;
     use std::ops::RangeBounds;
 
-    impl<T: Ord + Clone, A: Array<Item = T>> RangeSet<T, A> {
+    impl<T: Ord + Clone + MinValue, A: Array<Item = T>> RangeSet<T, A> {
         fn from_range_bounds<R: RangeBounds<T>>(r: R) -> std::result::Result<Self, ()> {
             match (r.start_bound(), r.end_bound()) {
                 (Bound::Unbounded, Bound::Unbounded) => Ok(Self::all()),
@@ -887,11 +882,10 @@ mod tests {
     impl<T: Arbitrary + Ord, A: Array<Item = T> + Clone + 'static> Arbitrary for RangeSet<T, A> {
         fn arbitrary<G: Gen>(g: &mut G) -> Self {
             let mut boundaries: Vec<T> = Arbitrary::arbitrary(g);
-            let below_all: bool = Arbitrary::arbitrary(g);
             boundaries.truncate(4);
             boundaries.sort();
             boundaries.dedup();
-            Self::new(below_all, boundaries.into())
+            Self::new(boundaries.into())
         }
     }
 
@@ -899,10 +893,10 @@ mod tests {
     impl<E: PrimInt, A: Array<Item = E>> TestSamples<E, bool> for RangeSet<E, A> {
         fn samples(&self, res: &mut BTreeSet<E>) {
             res.insert(E::min_value());
-            for x in self.boundaries.iter().cloned() {
-                res.insert(x - E::one());
+            for x in self.0.iter().cloned() {
+                res.insert(x.saturating_sub(E::one()));
                 res.insert(x);
-                res.insert(x + E::one());
+                res.insert(x.saturating_add(E::one()));
             }
             res.insert(E::max_value());
         }
@@ -1013,7 +1007,11 @@ mod tests {
 
     #[quickcheck]
     fn is_disjoint_sample(a: Test, b: Test) -> bool {
-        binary_property_test(&a, &b, a.is_disjoint(&b), |a, b| !(a & b))
+        let res = binary_property_test(&a, &b, a.is_disjoint(&b), |a, b| !(a & b));
+        if !res {
+            println!("{:?} {:?} {:?}", a, b, a.is_disjoint(&b));
+        }
+        res
     }
 
     #[quickcheck]
