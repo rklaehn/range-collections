@@ -175,6 +175,28 @@ impl<'a, A: Array> InPlaceSmallVecBuilder<'a, A> {
     }
 }
 
+impl<'a, A: Array> InPlaceSmallVecBuilder<'a, A>
+where
+    A::Item: Clone,
+{
+    /// Take at most `n` elements from `iter` to the target
+    #[inline]
+    pub fn extend_from_ref_iter<I: Iterator<Item = &'a A::Item>>(
+        &mut self,
+        iter: &mut I,
+        n: usize,
+    ) {
+        if n > 0 {
+            self.reserve(n);
+            for _ in 0..n {
+                if let Some(value) = iter.next() {
+                    self.push_unsafe(value.clone())
+                }
+            }
+        }
+    }
+}
+
 #[inline]
 unsafe fn copy<T>(v: *mut T, from: usize, to: usize, n: usize) {
     // if to < from {
@@ -286,64 +308,5 @@ mod tests {
             res.pop_front();
             res.pop_front();
         })
-    }
-}
-
-/// workaround until https://github.com/servo/rust-smallvec/issues/181 is implemented
-pub struct SmallVecIntoIter<A: Array> {
-    data: SmallVec<A>,
-    current: usize,
-    end: usize,
-}
-
-impl<A: Array> Drop for SmallVecIntoIter<A> {
-    fn drop(&mut self) {
-        for _ in self {}
-    }
-}
-
-impl<A: Array> Iterator for SmallVecIntoIter<A> {
-    type Item = A::Item;
-
-    #[inline]
-    fn next(&mut self) -> Option<A::Item> {
-        if self.current == self.end {
-            None
-        } else {
-            unsafe {
-                let current = self.current as isize;
-                self.current += 1;
-                Some(core::ptr::read(self.data.as_ptr().offset(current)))
-            }
-        }
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let size = self.end - self.current;
-        (size, Some(size))
-    }
-}
-
-impl<A: Array> SmallVecIntoIter<A> {
-    /// create a new iterator from a SmallVec
-    pub fn new(data: SmallVec<A>) -> Self {
-        Self {
-            current: 0,
-            end: data.len(),
-            data,
-        }
-    }
-
-    /// Returns the remaining items of this iterator as a slice.
-    pub fn as_slice(&self) -> &[A::Item] {
-        let len = self.end - self.current;
-        unsafe { core::slice::from_raw_parts(self.data.as_ptr().add(self.current), len) }
-    }
-
-    /// Returns the remaining items of this iterator as a mutable slice.
-    pub fn as_mut_slice(&mut self) -> &mut [A::Item] {
-        let len = self.end - self.current;
-        unsafe { core::slice::from_raw_parts_mut(self.data.as_mut_ptr().add(self.current), len) }
     }
 }

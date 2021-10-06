@@ -26,4 +26,4 @@ mod obey;
 
 pub mod range_set;
 
-pub use range_set::RangeSet;
+pub use range_set::{AbstractRangeSet, RangeSet, RangeSet2};

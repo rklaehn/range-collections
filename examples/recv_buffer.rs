@@ -1,5 +1,5 @@
 use rand::prelude::*;
-use range_collections::RangeSet;
+use range_collections::{range_set::RangeSet2, RangeSet};
 use std::ops::{Bound, Range};
 
 fn create_messages(n: usize, delay: usize) -> Vec<Range<usize>> {
@@ -28,8 +28,8 @@ fn create_messages(n: usize, delay: usize) -> Vec<Range<usize>> {
     msgs
 }
 
-fn test(msgs: &Vec<Range<usize>>) -> RangeSet<usize> {
-    let mut buffer: RangeSet<usize> = RangeSet::from(..0);
+fn test(msgs: &Vec<Range<usize>>) -> RangeSet2<usize> {
+    let mut buffer: RangeSet2<usize> = RangeSet::from(..0);
     for msg in msgs.iter().cloned() {
         buffer |= RangeSet::from(msg);
     }
@@ -43,7 +43,7 @@ fn main() {
         test(&msgs);
     }
 
-    let mut buffer: RangeSet<usize> = RangeSet::from(..0);
+    let mut buffer: RangeSet2<usize> = RangeSet::from(..0);
     for (i, msg) in msgs.into_iter().enumerate() {
         buffer |= RangeSet::from(msg);
         if (i % 1000) == 0 {
@@ -57,5 +57,4 @@ fn main() {
         }
     }
     println!("{:?}", buffer);
-    println!("{:?}", buffer.boundaries().capacity());
 }

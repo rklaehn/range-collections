@@ -11,11 +11,11 @@ pub(crate) trait MergeStateRead {
     fn a_slice(&self) -> &[Self::A];
     /// The remaining data in b
     fn b_slice(&self) -> &[Self::B];
+    /// current value of a
+    fn ac(&self) -> bool;
+    /// current value of b
+    fn bc(&self) -> bool;
 }
-
-// pub(crate) trait Merger<M> {
-//     fn merge(&self, m: &mut M);
-// }
 
 /// Basically a convenient to use bool to allow aborting a piece of code early using ?
 /// return `None` to abort and `Some(())` to continue
