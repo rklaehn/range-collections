@@ -1,6 +1,6 @@
 [package]
 name = "range-collections"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["Rüdiger Klaehn <rklaehn@protonmail.com>"]
 description = "Sets and maps of ranges, backed by smallvec"
 repository = "https://github.com/rklaehn/range-collections"
@@ -16,10 +16,9 @@ smallvec = "1.0"
 serde = { version = "1", optional = true, default-features = false }
 rkyv = { version = "0.7.18", optional = true }
 bytecheck = { version = "0.6.5", optional = true }
-num-traits = "0.2.8"
 
 [features]
-default = ["serde", "rkyv", "rkyv_validated"]
+default = []
 rkyv_validated = ["rkyv", "bytecheck"]
 
 [dev-dependencies]
@@ -31,7 +30,9 @@ rand = "0.7.2"
 serde_cbor = "0.11.1"
 rkyv = { version = "0.7.18", features = ["validation"] }
 hex = "0.4.3"
+num-traits = "0.2.8"
 
 [[bench]]
 name = "range_set"
 harness = false
+

@@ -6,21 +6,19 @@ use crate::merge_state::{
     BoolOpMergeState, InPlaceMergeState, InPlaceMergeStateRef, MergeStateMut, SmallVecMergeState,
 };
 use core::cmp::Ordering;
-use core::fmt;
 use core::fmt::Debug;
 use core::ops::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Bound::*, Not, Range,
     RangeFrom, RangeTo, Sub, SubAssign,
 };
-use num_traits::{Bounded, PrimInt};
 use smallvec::{Array, SmallVec};
 #[cfg(feature = "serde")]
 use {
+    core::{fmt, marker::PhantomData},
     serde::{
         de::{Deserialize, Deserializer, SeqAccess, Visitor},
         ser::{Serialize, SerializeSeq, Serializer},
     },
-    std::marker::PhantomData,
 };
 
 /// # A set of non-overlapping ranges
@@ -34,13 +32,13 @@ use {
 /// let r = !a;
 /// ```
 ///
-/// A data structure to represent a set of non-overlapping ranges of element type `T: Ord`. It uses a `SmallVec<T>`
+/// A data structure to represent a set of non-overlapping ranges of element type `T: RangeSetEntry`. It uses a `SmallVec<T>`
 /// of sorted boundaries internally.
 ///
-/// It can represent not just finite ranges but also ranges with unbounded start or end. Because it can represent
+/// It can represent not just finite ranges but also ranges with unbounded end. Because it can represent
 /// infinite ranges, it can also represent the set of all elements, and therefore all boolean operations including negation.
 ///
-/// It does not put any constraints on the element type for requriring an `Ord` instance. Adjacent ranges will be merged.
+/// Adjacent ranges will be merged.
 ///
 /// It provides very fast operations for set operations (&, |, ^) as well as for intersection tests (is_disjoint, is_subset).
 ///
@@ -56,7 +54,7 @@ use {
 ///
 /// |operation    | best      | worst     | remark
 /// |-------------|-----------|-----------|--------
-/// |negation     | 1         | 1         |
+/// |negation     | 1         | O(N)      |
 /// |union        | O(log(N)) | O(N)      | binary merge
 /// |intersection | O(log(N)) | O(N)      | binary merge
 /// |difference   | O(log(N)) | O(N)      | binary merge
@@ -101,14 +99,14 @@ where
 
 impl<A: Array, R: AbstractRangeSet<A::Item>> PartialEq<R> for RangeSet<A>
 where
-    A::Item: PartialEq + MinValue + Ord,
+    A::Item: RangeSetEntry,
 {
     fn eq(&self, that: &R) -> bool {
         AbstractRangeSet::<A::Item>::boundaries(self) == that.boundaries()
     }
 }
 
-impl<A: Array> Eq for RangeSet<A> where A::Item: Eq + MinValue + Ord {}
+impl<A: Array> Eq for RangeSet<A> where A::Item: Eq + RangeSetEntry {}
 
 /// A range set that stores up to 2 boundaries inline
 pub type RangeSet2<T> = RangeSet<[T; 2]>;
@@ -158,7 +156,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
 ///
 /// This is just implemented for ArchivedRangeSet and RangeSet.
 /// It probably does not make sense to implement it yourself.
-pub trait AbstractRangeSet<T: Ord + MinValue> {
+pub trait AbstractRangeSet<T: RangeSetEntry> {
     /// the boundaries as a reference - must be strictly sorted
     fn boundaries(&self) -> &[T];
 
@@ -177,7 +175,7 @@ pub trait AbstractRangeSet<T: Ord + MinValue> {
 
     /// true if the range set contains all values
     fn is_all(&self) -> bool {
-        self.boundaries().len() == 1 && self.boundaries()[0] == T::min_value()
+        self.boundaries().len() == 1 && self.boundaries()[0].is_min_value()
     }
 
     /// true if this range set is disjoint from another range set
@@ -207,43 +205,107 @@ pub trait AbstractRangeSet<T: Ord + MinValue> {
 
 impl<A: Array> AbstractRangeSet<A::Item> for RangeSet<A>
 where
-    A::Item: Ord + MinValue,
+    A::Item: RangeSetEntry,
 {
     fn boundaries(&self) -> &[A::Item] {
-        self.0.as_ref()
-    }
-}
-
-impl<T: Ord + MinValue> AbstractRangeSet<T> for ArchivedRangeSet<T> {
-    fn boundaries(&self) -> &[T] {
         self.0.as_ref()
     }
 }
 
 impl<A: Array> AbstractRangeSet<A::Item> for &RangeSet<A>
 where
-    A::Item: Ord + MinValue,
+    A::Item: RangeSetEntry,
 {
     fn boundaries(&self) -> &[A::Item] {
         self.0.as_ref()
     }
 }
 
-impl<T: Ord + MinValue> AbstractRangeSet<T> for &ArchivedRangeSet<T> {
+#[cfg(feature = "rkyv")]
+impl<T: RangeSetEntry> AbstractRangeSet<T> for ArchivedRangeSet<T> {
     fn boundaries(&self) -> &[T] {
         self.0.as_ref()
     }
 }
 
-/// trait for types that have a smallest value
-pub trait MinValue {
-    /// the minimum value for this type
-    fn min_value() -> Self;
+#[cfg(feature = "rkyv")]
+impl<T: RangeSetEntry> AbstractRangeSet<T> for &ArchivedRangeSet<T> {
+    fn boundaries(&self) -> &[T] {
+        self.0.as_ref()
+    }
 }
 
-impl<T: PrimInt> MinValue for T {
+/// trait for types that can be entries of range sets
+///
+/// they must have an order and a minimum value.
+pub trait RangeSetEntry: Ord {
+    /// the minimum value for this type
+    fn min_value() -> Self;
+
+    /// checks if this is the minimum value
+    ///
+    /// this is to be able to check for minimum without having to create a value
+    fn is_min_value(&self) -> bool;
+}
+
+macro_rules! entry_instance {
+    ($t:tt) => {
+        impl RangeSetEntry for $t {
+            fn min_value() -> Self {
+                $t::MIN
+            }
+
+            fn is_min_value(&self) -> bool {
+                *self == $t::MIN
+            }
+        }
+    };
+    ($t:tt, $($rest:tt),+) => {
+        entry_instance!($t);
+        entry_instance!($( $rest ),*);
+    }
+}
+
+entry_instance!(u8, u16, u32, u64, u128, usize);
+entry_instance!(i8, i16, i32, i64, i128, isize);
+
+impl RangeSetEntry for String {
     fn min_value() -> Self {
-        <T as Bounded>::min_value()
+        "".to_owned()
+    }
+
+    fn is_min_value(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+impl RangeSetEntry for &str {
+    fn min_value() -> Self {
+        ""
+    }
+
+    fn is_min_value(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+impl<T: Ord> RangeSetEntry for Vec<T> {
+    fn min_value() -> Self {
+        Vec::new()
+    }
+
+    fn is_min_value(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+impl<T: Ord> RangeSetEntry for &[T] {
+    fn min_value() -> Self {
+        &[]
+    }
+
+    fn is_min_value(&self) -> bool {
+        self.is_empty()
     }
 }
 
@@ -264,12 +326,11 @@ impl<T, A: Array<Item = T>> RangeSet<A> {
     }
 }
 
-impl<T: MinValue + Ord, A: Array<Item = T>> RangeSet<A> {
+impl<T: RangeSetEntry, A: Array<Item = T>> RangeSet<A> {
     fn from_range_until(a: T) -> Self {
         let mut t = SmallVec::new();
-        let min = T::min_value();
-        if a > min {
-            t.push(min);
+        if !a.is_min_value() {
+            t.push(T::min_value());
             t.push(a);
         }
         Self::new(t)
@@ -289,12 +350,12 @@ impl<T: MinValue + Ord, A: Array<Item = T>> RangeSet<A> {
     }
 }
 
-impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<A> {
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> RangeSet<A> {
     /// intersection
     pub fn intersection(&self, that: &Self) -> Self {
         Self::new(VecMergeState::merge(
-            self.0.as_slice(),
-            that.0.as_slice(),
+            self.boundaries(),
+            that.boundaries(),
             IntersectionOp,
         ))
     }
@@ -305,8 +366,8 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<A> {
     /// union
     pub fn union(&self, that: &Self) -> Self {
         Self::new(VecMergeState::merge(
-            self.0.as_slice(),
-            that.0.as_slice(),
+            self.boundaries(),
+            that.boundaries(),
             UnionOp,
         ))
     }
@@ -317,8 +378,8 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<A> {
     /// difference
     pub fn difference(&self, that: &Self) -> Self {
         Self::new(VecMergeState::merge(
-            self.0.as_slice(),
-            that.0.as_slice(),
+            self.boundaries(),
+            that.boundaries(),
             DiffOp,
         ))
     }
@@ -329,8 +390,8 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<A> {
     /// symmetric difference (xor)
     pub fn symmetric_difference(&self, that: &Self) -> Self {
         Self::new(VecMergeState::merge(
-            self.0.as_slice(),
-            that.0.as_slice(),
+            self.boundaries(),
+            that.boundaries(),
             XorOp,
         ))
     }
@@ -340,7 +401,7 @@ impl<T: MinValue + Ord + Clone, A: Array<Item = T>> RangeSet<A> {
     }
 }
 
-impl<T: MinValue + Ord, A: Array<Item = T>> From<bool> for RangeSet<A> {
+impl<T: RangeSetEntry, A: Array<Item = T>> From<bool> for RangeSet<A> {
     fn from(value: bool) -> Self {
         if value {
             Self::all()
@@ -350,7 +411,7 @@ impl<T: MinValue + Ord, A: Array<Item = T>> From<bool> for RangeSet<A> {
     }
 }
 
-impl<T: Ord + MinValue, A: Array<Item = T>> RangeSet<A> {
+impl<T: RangeSetEntry, A: Array<Item = T>> RangeSet<A> {
     fn from_range(a: Range<T>) -> Self {
         if a.start < a.end {
             let mut t = SmallVec::new();
@@ -363,19 +424,19 @@ impl<T: Ord + MinValue, A: Array<Item = T>> RangeSet<A> {
     }
 }
 
-impl<T: Ord + MinValue, A: Array<Item = T>> From<Range<T>> for RangeSet<A> {
+impl<T: RangeSetEntry, A: Array<Item = T>> From<Range<T>> for RangeSet<A> {
     fn from(value: Range<T>) -> Self {
         Self::from_range(value)
     }
 }
 
-impl<T: Ord + MinValue, A: Array<Item = T>> From<RangeFrom<T>> for RangeSet<A> {
+impl<T: RangeSetEntry, A: Array<Item = T>> From<RangeFrom<T>> for RangeSet<A> {
     fn from(value: RangeFrom<T>) -> Self {
         Self::from_range_from(value.start)
     }
 }
 
-impl<T: Ord + MinValue, A: Array<Item = T>> From<RangeTo<T>> for RangeSet<A> {
+impl<T: RangeSetEntry, A: Array<Item = T>> From<RangeTo<T>> for RangeSet<A> {
     fn from(value: RangeTo<T>) -> Self {
         Self::from_range_until(value.end)
     }
@@ -384,7 +445,7 @@ impl<T: Ord + MinValue, A: Array<Item = T>> From<RangeTo<T>> for RangeSet<A> {
 /// compute the intersection of this range set with another, producing a new range set
 ///
 /// &forall; t &isin; T, r(t) = a(t) & b(t)
-impl<T: Ord + MinValue + Clone, A: Array<Item = T>> BitAnd for &RangeSet<A> {
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitAnd for &RangeSet<A> {
     type Output = RangeSet<A>;
     fn bitand(self, that: Self) -> Self::Output {
         self.intersection(that)
@@ -400,7 +461,7 @@ impl<T: Ord, A: Array<Item = T>> BitAndAssign for RangeSet<A> {
 /// compute the union of this range set with another, producing a new range set
 ///
 /// &forall; t &isin; T, r(t) = a(t) | b(t)
-impl<T: Ord + Clone + MinValue, A: Array<Item = T>> BitOr for &RangeSet<A> {
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitOr for &RangeSet<A> {
     type Output = RangeSet<A>;
     fn bitor(self, that: Self) -> Self::Output {
         self.union(that)
@@ -416,14 +477,14 @@ impl<T: Ord, A: Array<Item = T>> BitOrAssign for RangeSet<A> {
 /// compute the exclusive or of this range set with another, producing a new range set
 ///
 /// &forall; t &isin; T, r(t) = a(t) ^ b(t)
-impl<T: Ord + Clone + MinValue, A: Array<Item = T>> BitXor for &RangeSet<A> {
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitXor for &RangeSet<A> {
     type Output = RangeSet<A>;
     fn bitxor(self, that: Self) -> Self::Output {
         self.symmetric_difference(that)
     }
 }
 
-impl<T: Ord + MinValue, A: Array<Item = T>> BitXorAssign for RangeSet<A> {
+impl<T: RangeSetEntry, A: Array<Item = T>> BitXorAssign for RangeSet<A> {
     fn bitxor_assign(&mut self, that: Self) {
         InPlaceMergeState::merge(&mut self.0, that.0, XorOp);
     }
@@ -432,7 +493,7 @@ impl<T: Ord + MinValue, A: Array<Item = T>> BitXorAssign for RangeSet<A> {
 /// compute the difference of this range set with another, producing a new range set
 ///
 /// &forall; t &isin; T, r(t) = a(t) & !b(t)
-impl<T: Ord + Clone + MinValue, A: Array<Item = T>> Sub for &RangeSet<A> {
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> Sub for &RangeSet<A> {
     type Output = RangeSet<A>;
     fn sub(self, that: Self) -> Self::Output {
         self.difference(that)
@@ -448,11 +509,11 @@ impl<T: Ord, A: Array<Item = T>> SubAssign for RangeSet<A> {
 /// compute the negation of this range set
 ///
 /// &forall; t &isin; T, r(t) = !a(t)
-impl<T: Ord + Clone + MinValue, A: Array<Item = T>> Not for RangeSet<A> {
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> Not for RangeSet<A> {
     type Output = RangeSet<A>;
     fn not(mut self) -> Self::Output {
         match self.0.get(0) {
-            Some(x) if *x == T::min_value() => {
+            Some(x) if x.is_min_value() => {
                 self.0.remove(0);
             }
             _ => {
@@ -466,7 +527,7 @@ impl<T: Ord + Clone + MinValue, A: Array<Item = T>> Not for RangeSet<A> {
 /// compute the negation of this range set
 ///
 /// &forall; t &isin; T, r(t) = !a(t)
-impl<T: Ord + Clone + MinValue, A: Array<Item = T>> Not for &RangeSet<A> {
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> Not for &RangeSet<A> {
     type Output = RangeSet<A>;
     fn not(self) -> Self::Output {
         self ^ &RangeSet::all()
@@ -679,7 +740,7 @@ impl std::error::Error for ArchivedRangeSetError {}
 
 #[cfg(feature = "rkyv_validated")]
 impl std::fmt::Display for ArchivedRangeSetError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{:?}", self)
     }
 }
@@ -779,11 +840,12 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for XorOp {
 mod tests {
     use super::*;
     use crate::obey::*;
+    use num_traits::{Bounded, PrimInt};
     use quickcheck::*;
     use std::collections::BTreeSet;
     use std::ops::RangeBounds;
 
-    impl<T: Ord + Clone + MinValue, A: Array<Item = T>> RangeSet<A> {
+    impl<T: RangeSetEntry + Clone, A: Array<Item = T>> RangeSet<A> {
         fn from_range_bounds<R: RangeBounds<T>>(r: R) -> std::result::Result<Self, ()> {
             match (r.start_bound(), r.end_bound()) {
                 (Bound::Unbounded, Bound::Unbounded) => Ok(Self::all()),
@@ -809,9 +871,9 @@ mod tests {
     }
 
     /// A range set can be seen as a set of elements, even though it does not actually contain the elements
-    impl<E: PrimInt, A: Array<Item = E>> TestSamples<E, bool> for RangeSet<A> {
+    impl<E: PrimInt + RangeSetEntry + Clone, A: Array<Item = E>> TestSamples<E, bool> for RangeSet<A> {
         fn samples(&self, res: &mut BTreeSet<E>) {
-            res.insert(E::min_value());
+            res.insert(<E as Bounded>::min_value());
             for x in self.0.iter().cloned() {
                 res.insert(x.saturating_sub(E::one()));
                 res.insert(x);
