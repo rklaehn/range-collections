@@ -160,6 +160,14 @@ pub trait AbstractRangeSet<T: RangeSetEntry> {
     /// the boundaries as a reference - must be strictly sorted
     fn boundaries(&self) -> &[T];
 
+    /// convert to a normal range set
+    fn to_range_set<A: Array<Item = T>>(&self) -> RangeSet<A>
+    where
+        T: Clone,
+    {
+        RangeSet::new(self.boundaries().into())
+    }
+
     /// true if the value is contained in the range set
     fn contains(&self, value: &T) -> bool {
         match self.boundaries().binary_search(value) {
@@ -200,6 +208,54 @@ pub trait AbstractRangeSet<T: RangeSetEntry> {
     /// iterate over all ranges in this range set
     fn iter(&self) -> Iter<T> {
         Iter(self.boundaries())
+    }
+    /// intersection
+    fn intersection<A>(&self, that: &impl AbstractRangeSet<T>) -> RangeSet<A>
+    where
+        A: Array<Item = T>,
+        T: Clone,
+    {
+        RangeSet::new(VecMergeState::merge(
+            self.boundaries(),
+            that.boundaries(),
+            IntersectionOp,
+        ))
+    }
+    /// union
+    fn union<A>(&self, that: &impl AbstractRangeSet<T>) -> RangeSet<A>
+    where
+        A: Array<Item = T>,
+        T: Clone,
+    {
+        RangeSet::new(VecMergeState::merge(
+            self.boundaries(),
+            that.boundaries(),
+            UnionOp,
+        ))
+    }
+    /// difference
+    fn difference<A>(&self, that: &impl AbstractRangeSet<T>) -> RangeSet<A>
+    where
+        A: Array<Item = T>,
+        T: Clone,
+    {
+        RangeSet::new(VecMergeState::merge(
+            self.boundaries(),
+            that.boundaries(),
+            DiffOp,
+        ))
+    }
+    /// symmetric difference (xor)
+    fn symmetric_difference<A>(&self, that: &impl AbstractRangeSet<T>) -> RangeSet<A>
+    where
+        A: Array<Item = T>,
+        T: Clone,
+    {
+        RangeSet::new(VecMergeState::merge(
+            self.boundaries(),
+            that.boundaries(),
+            XorOp,
+        ))
     }
 }
 
@@ -351,49 +407,17 @@ impl<T: RangeSetEntry, A: Array<Item = T>> RangeSet<A> {
 }
 
 impl<T: RangeSetEntry + Clone, A: Array<Item = T>> RangeSet<A> {
-    /// intersection
-    pub fn intersection(&self, that: &Self) -> Self {
-        Self::new(VecMergeState::merge(
-            self.boundaries(),
-            that.boundaries(),
-            IntersectionOp,
-        ))
-    }
     /// intersection in place
     pub fn intersection_with(&mut self, that: &impl AbstractRangeSet<T>) {
         InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), IntersectionOp);
-    }
-    /// union
-    pub fn union(&self, that: &Self) -> Self {
-        Self::new(VecMergeState::merge(
-            self.boundaries(),
-            that.boundaries(),
-            UnionOp,
-        ))
     }
     /// union in place
     pub fn union_with(&mut self, that: &impl AbstractRangeSet<T>) {
         InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), UnionOp);
     }
-    /// difference
-    pub fn difference(&self, that: &Self) -> Self {
-        Self::new(VecMergeState::merge(
-            self.boundaries(),
-            that.boundaries(),
-            DiffOp,
-        ))
-    }
     /// difference in place
     pub fn difference_with(&mut self, that: &impl AbstractRangeSet<T>) {
         InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), DiffOp);
-    }
-    /// symmetric difference (xor)
-    pub fn symmetric_difference(&self, that: &Self) -> Self {
-        Self::new(VecMergeState::merge(
-            self.boundaries(),
-            that.boundaries(),
-            XorOp,
-        ))
     }
     /// symmetric difference in place (xor)
     pub fn symmetric_difference_with(&mut self, that: &impl AbstractRangeSet<T>) {
