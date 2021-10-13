@@ -156,7 +156,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
 ///
 /// This is just implemented for ArchivedRangeSet and RangeSet.
 /// It probably does not make sense to implement it yourself.
-pub trait AbstractRangeSet<T: RangeSetEntry> {
+pub trait AbstractRangeSet<T> {
     /// the boundaries as a reference - must be strictly sorted
     fn boundaries(&self) -> &[T];
 
@@ -169,7 +169,10 @@ pub trait AbstractRangeSet<T: RangeSetEntry> {
     }
 
     /// true if the value is contained in the range set
-    fn contains(&self, value: &T) -> bool {
+    fn contains(&self, value: &T) -> bool
+    where
+        T: Ord,
+    {
         match self.boundaries().binary_search(value) {
             Ok(index) => !is_odd(index),
             Err(index) => is_odd(index),
@@ -182,26 +185,38 @@ pub trait AbstractRangeSet<T: RangeSetEntry> {
     }
 
     /// true if the range set contains all values
-    fn is_all(&self) -> bool {
+    fn is_all(&self) -> bool
+    where
+        T: RangeSetEntry,
+    {
         self.boundaries().len() == 1 && self.boundaries()[0].is_min_value()
     }
 
     /// true if this range set is disjoint from another range set
-    fn is_disjoint(&self, that: &impl AbstractRangeSet<T>) -> bool {
+    fn is_disjoint(&self, that: &impl AbstractRangeSet<T>) -> bool
+    where
+        T: RangeSetEntry,
+    {
         !RangeSetBoolOpMergeState::merge(self.boundaries(), that.boundaries(), IntersectionOp)
     }
 
     /// true if this range set is a superset of another range set
     ///
     /// A range set is considered to be a superset of itself
-    fn is_subset(&self, that: impl AbstractRangeSet<T>) -> bool {
+    fn is_subset(&self, that: impl AbstractRangeSet<T>) -> bool
+    where
+        T: Ord,
+    {
         !RangeSetBoolOpMergeState::merge(self.boundaries(), that.boundaries(), DiffOp)
     }
 
     /// true if this range set is a subset of another range set
     ///
     /// A range set is considered to be a subset of itself
-    fn is_superset(&self, that: impl AbstractRangeSet<T>) -> bool {
+    fn is_superset(&self, that: impl AbstractRangeSet<T>) -> bool
+    where
+        T: Ord,
+    {
         !RangeSetBoolOpMergeState::merge(that.boundaries(), self.boundaries(), DiffOp)
     }
 
@@ -213,7 +228,7 @@ pub trait AbstractRangeSet<T: RangeSetEntry> {
     fn intersection<A>(&self, that: &impl AbstractRangeSet<T>) -> RangeSet<A>
     where
         A: Array<Item = T>,
-        T: Clone,
+        T: Ord + Clone,
     {
         RangeSet::new(VecMergeState::merge(
             self.boundaries(),
@@ -225,7 +240,7 @@ pub trait AbstractRangeSet<T: RangeSetEntry> {
     fn union<A>(&self, that: &impl AbstractRangeSet<T>) -> RangeSet<A>
     where
         A: Array<Item = T>,
-        T: Clone,
+        T: Ord + Clone,
     {
         RangeSet::new(VecMergeState::merge(
             self.boundaries(),
@@ -237,7 +252,7 @@ pub trait AbstractRangeSet<T: RangeSetEntry> {
     fn difference<A>(&self, that: &impl AbstractRangeSet<T>) -> RangeSet<A>
     where
         A: Array<Item = T>,
-        T: Clone,
+        T: Ord + Clone,
     {
         RangeSet::new(VecMergeState::merge(
             self.boundaries(),
@@ -249,7 +264,7 @@ pub trait AbstractRangeSet<T: RangeSetEntry> {
     fn symmetric_difference<A>(&self, that: &impl AbstractRangeSet<T>) -> RangeSet<A>
     where
         A: Array<Item = T>,
-        T: Clone,
+        T: Ord + Clone,
     {
         RangeSet::new(VecMergeState::merge(
             self.boundaries(),
@@ -278,14 +293,14 @@ where
 }
 
 #[cfg(feature = "rkyv")]
-impl<T: RangeSetEntry> AbstractRangeSet<T> for ArchivedRangeSet<T> {
+impl<T> AbstractRangeSet<T> for ArchivedRangeSet<T> {
     fn boundaries(&self) -> &[T] {
         self.0.as_ref()
     }
 }
 
 #[cfg(feature = "rkyv")]
-impl<T: RangeSetEntry> AbstractRangeSet<T> for &ArchivedRangeSet<T> {
+impl<T> AbstractRangeSet<T> for &ArchivedRangeSet<T> {
     fn boundaries(&self) -> &[T] {
         self.0.as_ref()
     }
@@ -745,9 +760,28 @@ where
 
 /// Archived version of a RangeSet
 #[cfg(feature = "rkyv")]
-#[derive(Debug)]
 #[repr(transparent)]
 pub struct ArchivedRangeSet<T>(rkyv::vec::ArchivedVec<T>);
+
+#[cfg(feature = "rkyv")]
+impl<T: Debug> Debug for ArchivedRangeSet<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ArchivedRangeSet{{")?;
+        for (i, (l, u)) in self.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            match (l, u) {
+                (Unbounded, Unbounded) => write!(f, ".."),
+                (Unbounded, Excluded(b)) => write!(f, "..{:?}", b),
+                (Included(a), Unbounded) => write!(f, "{:?}..", a),
+                (Included(a), Excluded(b)) => write!(f, "{:?}..{:?}", a, b),
+                _ => write!(f, ""),
+            }?;
+        }
+        write!(f, "}}")
+    }
+}
 
 /// Validation error for a range set
 #[cfg(feature = "rkyv_validated")]
