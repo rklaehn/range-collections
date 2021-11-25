@@ -46,6 +46,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
+name = "binary-merge"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdb0e7489439321510c01eda25e0fe8d28ae940ea2eea7033c4dae41fcbfdb11"
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -302,6 +308,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "inplace-vec-builder"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b8923cdf5e9dedd127dc9a61a30771c8e0eda52ca4d3d5400ec47657acc466c"
+dependencies = [
+ "smallvec",
+]
+
+[[package]]
 name = "itertools"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -379,6 +394,12 @@ dependencies = [
  "hermit-abi",
  "libc",
 ]
+
+[[package]]
+name = "obey"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3583e1a1bb89c185c4babc15360e3afdbadff10858e7511e22d8c36ad006c158"
 
 [[package]]
 name = "once_cell"
@@ -656,10 +677,13 @@ dependencies = [
 name = "range-collections"
 version = "0.2.2"
 dependencies = [
+ "binary-merge",
  "bytecheck",
  "criterion",
  "hex",
+ "inplace-vec-builder",
  "num-traits",
+ "obey",
  "quickcheck",
  "quickcheck_macros",
  "rand 0.7.3",

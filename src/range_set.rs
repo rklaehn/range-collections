@@ -1,10 +1,10 @@
 #![deny(missing_docs)]
 
 //! A set of non-overlapping ranges
-use crate::binary_merge::{EarlyOut, MergeOperation, MergeStateRead};
 use crate::merge_state::{
     BoolOpMergeState, InPlaceMergeState, InPlaceMergeStateRef, MergeStateMut, SmallVecMergeState,
 };
+use binary_merge::{MergeOperation, MergeState};
 use core::cmp::Ordering;
 use core::fmt::Debug;
 use core::ops::{
@@ -593,15 +593,21 @@ impl<'a, T> RangeSetBoolOpMergeState<'a, T> {
 }
 
 impl<'a, T> MergeStateMut for RangeSetBoolOpMergeState<'a, T> {
-    fn advance_a(&mut self, n: usize, copy: bool) -> EarlyOut {
+    fn advance_a(&mut self, n: usize, copy: bool) -> bool {
         self.inner.advance_a(n, copy)
     }
-    fn advance_b(&mut self, n: usize, copy: bool) -> EarlyOut {
+    fn advance_b(&mut self, n: usize, copy: bool) -> bool {
         self.inner.advance_b(n, copy)
+    }
+    fn ac(&self) -> bool {
+        self.inner.ac()
+    }
+    fn bc(&self) -> bool {
+        self.inner.bc()
     }
 }
 
-impl<'a, T> MergeStateRead for RangeSetBoolOpMergeState<'a, T> {
+impl<'a, T> MergeState for RangeSetBoolOpMergeState<'a, T> {
     type A = T;
     type B = T;
     fn a_slice(&self) -> &[T] {
@@ -609,14 +615,6 @@ impl<'a, T> MergeStateRead for RangeSetBoolOpMergeState<'a, T> {
     }
     fn b_slice(&self) -> &[T] {
         self.inner.b_slice()
-    }
-
-    fn ac(&self) -> bool {
-        self.inner.ac()
-    }
-
-    fn bc(&self) -> bool {
-        self.inner.bc()
     }
 }
 
@@ -635,15 +633,23 @@ impl<'a, T: Clone, A: Array<Item = T>> VecMergeState<'a, T, A> {
 }
 
 impl<'a, T: Clone, A: Array<Item = T>> MergeStateMut for VecMergeState<'a, T, A> {
-    fn advance_a(&mut self, n: usize, copy: bool) -> EarlyOut {
+    fn advance_a(&mut self, n: usize, copy: bool) -> bool {
         self.inner.advance_a(n, copy)
     }
-    fn advance_b(&mut self, n: usize, copy: bool) -> EarlyOut {
+    fn advance_b(&mut self, n: usize, copy: bool) -> bool {
         self.inner.advance_b(n, copy)
+    }
+
+    fn ac(&self) -> bool {
+        self.inner.ac()
+    }
+
+    fn bc(&self) -> bool {
+        self.inner.bc()
     }
 }
 
-impl<'a, T, A: Array<Item = T>> MergeStateRead for VecMergeState<'a, T, A> {
+impl<'a, T, A: Array<Item = T>> MergeState for VecMergeState<'a, T, A> {
     type A = T;
     type B = T;
     fn a_slice(&self) -> &[T] {
@@ -651,12 +657,6 @@ impl<'a, T, A: Array<Item = T>> MergeStateRead for VecMergeState<'a, T, A> {
     }
     fn b_slice(&self) -> &[T] {
         self.inner.b_slice()
-    }
-    fn ac(&self) -> bool {
-        self.inner.ac()
-    }
-    fn bc(&self) -> bool {
-        self.inner.bc()
     }
 }
 
@@ -835,13 +835,13 @@ struct XorOp;
 struct DiffOp;
 
 impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for UnionOp {
-    fn from_a(&self, m: &mut M, n: usize) -> EarlyOut {
+    fn from_a(&self, m: &mut M, n: usize) -> bool {
         m.advance_a(n, !m.bc())
     }
-    fn from_b(&self, m: &mut M, n: usize) -> EarlyOut {
+    fn from_b(&self, m: &mut M, n: usize) -> bool {
         m.advance_b(n, !m.ac())
     }
-    fn collision(&self, m: &mut M) -> EarlyOut {
+    fn collision(&self, m: &mut M) -> bool {
         m.advance_both(m.ac() == m.bc())
     }
     fn cmp(&self, a: &T, b: &T) -> Ordering {
@@ -850,13 +850,13 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for UnionOp {
 }
 
 impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for IntersectionOp {
-    fn from_a(&self, m: &mut M, n: usize) -> EarlyOut {
+    fn from_a(&self, m: &mut M, n: usize) -> bool {
         m.advance_a(n, m.bc())
     }
-    fn from_b(&self, m: &mut M, n: usize) -> EarlyOut {
+    fn from_b(&self, m: &mut M, n: usize) -> bool {
         m.advance_b(n, m.ac())
     }
-    fn collision(&self, m: &mut M) -> EarlyOut {
+    fn collision(&self, m: &mut M) -> bool {
         m.advance_both(m.ac() == m.bc())
     }
     fn cmp(&self, a: &T, b: &T) -> Ordering {
@@ -865,13 +865,13 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for Intersect
 }
 
 impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for DiffOp {
-    fn from_a(&self, m: &mut M, n: usize) -> EarlyOut {
+    fn from_a(&self, m: &mut M, n: usize) -> bool {
         m.advance_a(n, !m.bc())
     }
-    fn from_b(&self, m: &mut M, n: usize) -> EarlyOut {
+    fn from_b(&self, m: &mut M, n: usize) -> bool {
         m.advance_b(n, m.ac())
     }
-    fn collision(&self, m: &mut M) -> EarlyOut {
+    fn collision(&self, m: &mut M) -> bool {
         m.advance_both(m.ac() != m.bc())
     }
     fn cmp(&self, a: &T, b: &T) -> Ordering {
@@ -880,13 +880,13 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for DiffOp {
 }
 
 impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for XorOp {
-    fn from_a(&self, m: &mut M, n: usize) -> EarlyOut {
+    fn from_a(&self, m: &mut M, n: usize) -> bool {
         m.advance_a(n, true)
     }
-    fn from_b(&self, m: &mut M, n: usize) -> EarlyOut {
+    fn from_b(&self, m: &mut M, n: usize) -> bool {
         m.advance_b(n, true)
     }
-    fn collision(&self, m: &mut M) -> EarlyOut {
+    fn collision(&self, m: &mut M) -> bool {
         m.advance_both(false)
     }
     fn cmp(&self, a: &T, b: &T) -> Ordering {
@@ -897,8 +897,8 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for XorOp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::obey::*;
     use num_traits::{Bounded, PrimInt};
+    use obey::*;
     use quickcheck::*;
     use std::collections::BTreeSet;
     use std::ops::RangeBounds;
