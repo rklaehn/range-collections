@@ -197,7 +197,7 @@ pub trait AbstractRangeSet<T> {
     where
         T: RangeSetEntry,
     {
-        !RangeSetBoolOpMergeState::merge(self.boundaries(), that.boundaries(), IntersectionOp)
+        !RangeSetBoolOpMergeState::merge(self.boundaries(), that.boundaries(), IntersectionOp::<0>)
     }
 
     /// true if this range set is a superset of another range set
@@ -207,7 +207,7 @@ pub trait AbstractRangeSet<T> {
     where
         T: Ord,
     {
-        !RangeSetBoolOpMergeState::merge(self.boundaries(), that.boundaries(), DiffOp)
+        !RangeSetBoolOpMergeState::merge(self.boundaries(), that.boundaries(), DiffOp::<0>)
     }
 
     /// true if this range set is a subset of another range set
@@ -217,7 +217,7 @@ pub trait AbstractRangeSet<T> {
     where
         T: Ord,
     {
-        !RangeSetBoolOpMergeState::merge(that.boundaries(), self.boundaries(), DiffOp)
+        !RangeSetBoolOpMergeState::merge(that.boundaries(), self.boundaries(), DiffOp::<0>)
     }
 
     /// iterate over all ranges in this range set
@@ -233,7 +233,7 @@ pub trait AbstractRangeSet<T> {
         RangeSet::new(VecMergeState::merge(
             self.boundaries(),
             that.boundaries(),
-            IntersectionOp,
+            IntersectionOp::<{ usize::MAX }>,
         ))
     }
     /// union
@@ -257,7 +257,7 @@ pub trait AbstractRangeSet<T> {
         RangeSet::new(VecMergeState::merge(
             self.boundaries(),
             that.boundaries(),
-            DiffOp,
+            DiffOp::<{ usize::MAX }>,
         ))
     }
     /// symmetric difference (xor)
@@ -424,7 +424,11 @@ impl<T: RangeSetEntry, A: Array<Item = T>> RangeSet<A> {
 impl<T: RangeSetEntry + Clone, A: Array<Item = T>> RangeSet<A> {
     /// intersection in place
     pub fn intersection_with(&mut self, that: &impl AbstractRangeSet<T>) {
-        InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), IntersectionOp);
+        InPlaceMergeStateRef::merge(
+            &mut self.0,
+            &that.boundaries(),
+            IntersectionOp::<{ usize::MAX }>,
+        );
     }
     /// union in place
     pub fn union_with(&mut self, that: &impl AbstractRangeSet<T>) {
@@ -432,7 +436,7 @@ impl<T: RangeSetEntry + Clone, A: Array<Item = T>> RangeSet<A> {
     }
     /// difference in place
     pub fn difference_with(&mut self, that: &impl AbstractRangeSet<T>) {
-        InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), DiffOp);
+        InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), DiffOp::<{ usize::MAX }>);
     }
     /// symmetric difference in place (xor)
     pub fn symmetric_difference_with(&mut self, that: &impl AbstractRangeSet<T>) {
@@ -493,7 +497,7 @@ impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitAnd for &RangeSet<A> {
 
 impl<T: Ord, A: Array<Item = T>> BitAndAssign for RangeSet<A> {
     fn bitand_assign(&mut self, that: Self) {
-        InPlaceMergeState::merge(&mut self.0, that.0, IntersectionOp);
+        InPlaceMergeState::merge(&mut self.0, that.0, IntersectionOp::<{ usize::MAX }>);
     }
 }
 
@@ -541,7 +545,7 @@ impl<T: RangeSetEntry + Clone, A: Array<Item = T>> Sub for &RangeSet<A> {
 
 impl<T: Ord, A: Array<Item = T>> SubAssign for RangeSet<A> {
     fn sub_assign(&mut self, that: Self) {
-        InPlaceMergeState::merge(&mut self.0, that.0, DiffOp);
+        InPlaceMergeState::merge(&mut self.0, that.0, DiffOp::<{ usize::MAX }>);
     }
 }
 
@@ -830,9 +834,9 @@ where
 }
 
 struct UnionOp;
-struct IntersectionOp;
 struct XorOp;
-struct DiffOp;
+struct IntersectionOp<const T: usize>;
+struct DiffOp<const T: usize>;
 
 impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for UnionOp {
     fn from_a(&self, m: &mut M, n: usize) -> bool {
@@ -849,7 +853,9 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for UnionOp {
     }
 }
 
-impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for IntersectionOp {
+impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>, const X: usize> MergeOperation<M>
+    for IntersectionOp<X>
+{
     fn from_a(&self, m: &mut M, n: usize) -> bool {
         m.advance_a(n, m.bc())
     }
@@ -862,9 +868,10 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for Intersect
     fn cmp(&self, a: &T, b: &T) -> Ordering {
         a.cmp(b)
     }
+    const MCM_THRESHOLD: usize = X;
 }
 
-impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for DiffOp {
+impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>, const X: usize> MergeOperation<M> for DiffOp<X> {
     fn from_a(&self, m: &mut M, n: usize) -> bool {
         m.advance_a(n, !m.bc())
     }
@@ -877,6 +884,7 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for DiffOp {
     fn cmp(&self, a: &T, b: &T) -> Ordering {
         a.cmp(b)
     }
+    const MCM_THRESHOLD: usize = X;
 }
 
 impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for XorOp {
