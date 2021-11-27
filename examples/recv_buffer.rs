@@ -28,7 +28,7 @@ fn create_messages(n: usize, delay: usize) -> Vec<Range<usize>> {
     msgs
 }
 
-fn test(msgs: &Vec<Range<usize>>) -> RangeSet2<usize> {
+fn test(msgs: &[Range<usize>]) -> RangeSet2<usize> {
     let mut buffer: RangeSet2<usize> = RangeSet::from(..0);
     for msg in msgs.iter().cloned() {
         buffer |= RangeSet::from(msg);

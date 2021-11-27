@@ -1,6 +1,6 @@
 [package]
 name = "range-collections"
-version = "0.2.2"
+version = "0.2.4"
 authors = ["Rüdiger Klaehn <rklaehn@protonmail.com>"]
 description = "Sets and maps of ranges, backed by smallvec"
 repository = "https://github.com/rklaehn/range-collections"
@@ -13,11 +13,11 @@ homepage = "https://github.com/rklaehn"
 
 [dependencies]
 smallvec = "1.0"
+inplace-vec-builder = { version = "0.1.0", features = ["smallvec"], default-features = false }
+binary-merge = "0.1.1"
 serde = { version = "1", optional = true, default-features = false }
 rkyv = { version = "0.7.18", optional = true }
 bytecheck = { version = "0.6.5", optional = true }
-inplace-vec-builder = { version = "0.1.0", features = ["smallvec"], default-features = false }
-binary-merge = "0.1.1"
 
 [features]
 default = []
