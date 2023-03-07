@@ -1,4 +1,4 @@
-use crate::iterators::SliceIterator;
+use crate::{iterators::SliceIterator, AbstractRangeSet};
 use binary_merge::{MergeOperation, MergeState};
 use core::fmt::Debug;
 use inplace_vec_builder::InPlaceSmallVecBuilder;
@@ -93,12 +93,12 @@ pub(crate) struct InPlaceMergeStateRef<'a, A: Array, B> {
 }
 
 impl<'a, A: Array, B> InPlaceMergeStateRef<'a, A, B> {
-    pub fn new(a: &'a mut SmallVec<A>, b: &'a impl AsRef<[B]>) -> Self {
+    pub fn new(a: &'a mut SmallVec<A>, b: &'a impl AbstractRangeSet<B>) -> Self {
         Self {
             a: a.into(),
-            b: SliceIterator(b.as_ref()),
+            b: SliceIterator(b.boundaries()),
             ac: false,
-            bc: false,
+            bc: b.below_all(),
         }
     }
 }
@@ -145,7 +145,11 @@ where
 }
 
 impl<'a, A: Array, B: 'a> InPlaceMergeStateRef<'a, A, B> {
-    pub fn merge<O: MergeOperation<Self>>(a: &'a mut SmallVec<A>, b: &'a impl AsRef<[B]>, o: O) {
+    pub fn merge<O: MergeOperation<Self>>(
+        a: &'a mut SmallVec<A>,
+        b: &'a impl AbstractRangeSet<B>,
+        o: O,
+    ) {
         let mut state = Self::new(a, b);
         o.merge(&mut state);
     }
@@ -173,12 +177,12 @@ impl<'a, A: Debug, B: Debug> Debug for BoolOpMergeState<'a, A, B> {
 }
 
 impl<'a, A, B> BoolOpMergeState<'a, A, B> {
-    pub fn new(a: &'a [A], b: &'a [B]) -> Self {
+    pub fn new(a: &'a impl AbstractRangeSet<A>, b: &'a impl AbstractRangeSet<B>) -> Self {
         Self {
-            a: SliceIterator(a),
-            b: SliceIterator(b),
-            ac: false,
-            bc: false,
+            a: SliceIterator(a.boundaries()),
+            b: SliceIterator(b.boundaries()),
+            ac: a.below_all(),
+            bc: b.below_all(),
             r: false,
         }
     }
@@ -188,8 +192,12 @@ impl<'a, A, B> BoolOpMergeState<'a, A, B> {
     }
 }
 
-impl<'a, A, B> BoolOpMergeState<'a, A, B> {
-    pub fn merge<O: MergeOperation<Self>>(a: &'a [A], b: &'a [B], o: O) -> bool {
+impl<'a, A: 'a, B: 'a> BoolOpMergeState<'a, A, B> {
+    pub fn merge<O: MergeOperation<Self>>(
+        a: &'a impl AbstractRangeSet<A>,
+        b: &'a impl AbstractRangeSet<B>,
+        o: O,
+    ) -> bool {
         let mut state = Self::new(a, b);
         o.merge(&mut state);
         state.r
@@ -252,13 +260,17 @@ impl<'a, A: Debug, B: Debug, Arr: Array> Debug for SmallVecMergeState<'a, A, B, 
     }
 }
 
-impl<'a, A, B, Arr: Array> SmallVecMergeState<'a, A, B, Arr> {
-    pub fn new(a: &'a [A], b: &'a [B], r: SmallVec<Arr>) -> Self {
+impl<'a, A: 'a, B: 'a, Arr: Array> SmallVecMergeState<'a, A, B, Arr> {
+    pub fn new(
+        a: &'a impl AbstractRangeSet<A>,
+        b: &'a impl AbstractRangeSet<B>,
+        r: SmallVec<Arr>,
+    ) -> Self {
         Self {
-            a: SliceIterator(a),
-            b: SliceIterator(b),
-            ac: false,
-            bc: false,
+            a: SliceIterator(a.boundaries()),
+            b: SliceIterator(b.boundaries()),
+            ac: a.below_all(),
+            bc: b.below_all(),
             r,
         }
     }
@@ -267,7 +279,11 @@ impl<'a, A, B, Arr: Array> SmallVecMergeState<'a, A, B, Arr> {
         self.r
     }
 
-    pub fn merge<O: MergeOperation<Self>>(a: &'a [A], b: &'a [B], o: O) -> SmallVec<Arr> {
+    pub fn merge<O: MergeOperation<Self>>(
+        a: &'a impl AbstractRangeSet<A>,
+        b: &'a impl AbstractRangeSet<B>,
+        o: O,
+    ) -> SmallVec<Arr> {
         let t: SmallVec<Arr> = SmallVec::new();
         let mut state = Self::new(a, b, t);
         o.merge(&mut state);

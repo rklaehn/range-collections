@@ -156,7 +156,10 @@ impl<'a, T> Iterator for Iter<'a, T> {
 ///
 /// This is just implemented for ArchivedRangeSet and RangeSet.
 /// It probably does not make sense to implement it yourself.
-pub trait AbstractRangeSet<T> {
+pub trait AbstractRangeSet<T>: Sized {
+    /// Value below the lowest boundary
+    fn below_all(&self) -> bool;
+
     /// the boundaries as a reference - must be strictly sorted
     fn boundaries(&self) -> &[T];
 
@@ -197,27 +200,27 @@ pub trait AbstractRangeSet<T> {
     where
         T: RangeSetEntry,
     {
-        !RangeSetBoolOpMergeState::merge(self.boundaries(), that.boundaries(), IntersectionOp::<0>)
+        !RangeSetBoolOpMergeState::merge(self, that, IntersectionOp::<0>)
     }
 
     /// true if this range set is a superset of another range set
     ///
     /// A range set is considered to be a superset of itself
-    fn is_subset(&self, that: impl AbstractRangeSet<T>) -> bool
+    fn is_subset(&self, that: &impl AbstractRangeSet<T>) -> bool
     where
         T: Ord,
     {
-        !RangeSetBoolOpMergeState::merge(self.boundaries(), that.boundaries(), DiffOp::<0>)
+        !RangeSetBoolOpMergeState::merge(self, that, DiffOp::<0>)
     }
 
     /// true if this range set is a subset of another range set
     ///
     /// A range set is considered to be a subset of itself
-    fn is_superset(&self, that: impl AbstractRangeSet<T>) -> bool
+    fn is_superset(&self, that: &impl AbstractRangeSet<T>) -> bool
     where
         T: Ord,
     {
-        !RangeSetBoolOpMergeState::merge(that.boundaries(), self.boundaries(), DiffOp::<0>)
+        !RangeSetBoolOpMergeState::merge(that, self, DiffOp::<0>)
     }
 
     /// iterate over all ranges in this range set
@@ -231,8 +234,8 @@ pub trait AbstractRangeSet<T> {
         T: Ord + Clone,
     {
         RangeSet::new(VecMergeState::merge(
-            self.boundaries(),
-            that.boundaries(),
+            self,
+            that,
             IntersectionOp::<{ usize::MAX }>,
         ))
     }
@@ -242,11 +245,7 @@ pub trait AbstractRangeSet<T> {
         A: Array<Item = T>,
         T: Ord + Clone,
     {
-        RangeSet::new(VecMergeState::merge(
-            self.boundaries(),
-            that.boundaries(),
-            UnionOp,
-        ))
+        RangeSet::new(VecMergeState::merge(self, that, UnionOp))
     }
     /// difference
     fn difference<A>(&self, that: &impl AbstractRangeSet<T>) -> RangeSet<A>
@@ -254,11 +253,7 @@ pub trait AbstractRangeSet<T> {
         A: Array<Item = T>,
         T: Ord + Clone,
     {
-        RangeSet::new(VecMergeState::merge(
-            self.boundaries(),
-            that.boundaries(),
-            DiffOp::<{ usize::MAX }>,
-        ))
+        RangeSet::new(VecMergeState::merge(self, that, DiffOp::<{ usize::MAX }>))
     }
     /// symmetric difference (xor)
     fn symmetric_difference<A>(&self, that: &impl AbstractRangeSet<T>) -> RangeSet<A>
@@ -266,11 +261,7 @@ pub trait AbstractRangeSet<T> {
         A: Array<Item = T>,
         T: Ord + Clone,
     {
-        RangeSet::new(VecMergeState::merge(
-            self.boundaries(),
-            that.boundaries(),
-            XorOp,
-        ))
+        RangeSet::new(VecMergeState::merge(self, that, XorOp))
     }
 }
 
@@ -278,6 +269,10 @@ impl<A: Array> AbstractRangeSet<A::Item> for RangeSet<A>
 where
     A::Item: RangeSetEntry,
 {
+    fn below_all(&self) -> bool {
+        false
+    }
+
     fn boundaries(&self) -> &[A::Item] {
         self.0.as_ref()
     }
@@ -287,6 +282,10 @@ impl<A: Array> AbstractRangeSet<A::Item> for &RangeSet<A>
 where
     A::Item: RangeSetEntry,
 {
+    fn below_all(&self) -> bool {
+        false
+    }
+
     fn boundaries(&self) -> &[A::Item] {
         self.0.as_ref()
     }
@@ -294,6 +293,10 @@ where
 
 #[cfg(feature = "rkyv")]
 impl<T> AbstractRangeSet<T> for ArchivedRangeSet<T> {
+    fn below_all(&self) -> bool {
+        false
+    }
+
     fn boundaries(&self) -> &[T] {
         self.0.as_ref()
     }
@@ -301,6 +304,10 @@ impl<T> AbstractRangeSet<T> for ArchivedRangeSet<T> {
 
 #[cfg(feature = "rkyv")]
 impl<T> AbstractRangeSet<T> for &ArchivedRangeSet<T> {
+    fn below_all(&self) -> bool {
+        false
+    }
+
     fn boundaries(&self) -> &[T] {
         self.0.as_ref()
     }
@@ -424,23 +431,19 @@ impl<T: RangeSetEntry, A: Array<Item = T>> RangeSet<A> {
 impl<T: RangeSetEntry + Clone, A: Array<Item = T>> RangeSet<A> {
     /// intersection in place
     pub fn intersection_with(&mut self, that: &impl AbstractRangeSet<T>) {
-        InPlaceMergeStateRef::merge(
-            &mut self.0,
-            &that.boundaries(),
-            IntersectionOp::<{ usize::MAX }>,
-        );
+        InPlaceMergeStateRef::merge(&mut self.0, that, IntersectionOp::<{ usize::MAX }>);
     }
     /// union in place
     pub fn union_with(&mut self, that: &impl AbstractRangeSet<T>) {
-        InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), UnionOp);
+        InPlaceMergeStateRef::merge(&mut self.0, that, UnionOp);
     }
     /// difference in place
     pub fn difference_with(&mut self, that: &impl AbstractRangeSet<T>) {
-        InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), DiffOp::<{ usize::MAX }>);
+        InPlaceMergeStateRef::merge(&mut self.0, that, DiffOp::<{ usize::MAX }>);
     }
     /// symmetric difference in place (xor)
     pub fn symmetric_difference_with(&mut self, that: &impl AbstractRangeSet<T>) {
-        InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), XorOp);
+        InPlaceMergeStateRef::merge(&mut self.0, that, XorOp);
     }
 }
 
@@ -586,8 +589,12 @@ struct RangeSetBoolOpMergeState<'a, T> {
     inner: BoolOpMergeState<'a, T, T>,
 }
 
-impl<'a, T> RangeSetBoolOpMergeState<'a, T> {
-    fn merge<O: MergeOperation<Self>>(a: &'a [T], b: &'a [T], o: O) -> bool {
+impl<'a, T: 'a> RangeSetBoolOpMergeState<'a, T> {
+    fn merge<O: MergeOperation<Self>>(
+        a: &'a impl AbstractRangeSet<T>,
+        b: &'a impl AbstractRangeSet<T>,
+        o: O,
+    ) -> bool {
         let mut state = Self {
             inner: BoolOpMergeState::new(a, b),
         };
@@ -626,8 +633,12 @@ struct VecMergeState<'a, T, A: Array> {
     inner: SmallVecMergeState<'a, T, T, A>,
 }
 
-impl<'a, T: Clone, A: Array<Item = T>> VecMergeState<'a, T, A> {
-    fn merge<O: MergeOperation<Self>>(a: &'a [T], b: &'a [T], o: O) -> SmallVec<A> {
+impl<'a, T: Clone + 'a, A: Array<Item = T>> VecMergeState<'a, T, A> {
+    fn merge<O: MergeOperation<Self>>(
+        a: &'a impl AbstractRangeSet<T>,
+        b: &'a impl AbstractRangeSet<T>,
+        o: O,
+    ) -> SmallVec<A> {
         let mut state = Self {
             inner: SmallVecMergeState::new(a, b, SmallVec::new()),
         };
