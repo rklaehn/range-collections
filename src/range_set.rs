@@ -144,9 +144,9 @@ impl<T: Debug, A: Array<Item = T>> Debug for RangeSet<A> {
             }
             match (l, u) {
                 (Unbounded, Unbounded) => write!(f, ".."),
-                (Unbounded, Excluded(b)) => write!(f, "..{:?}", b),
-                (Included(a), Unbounded) => write!(f, "{:?}..", a),
-                (Included(a), Excluded(b)) => write!(f, "{:?}..{:?}", a, b),
+                (Unbounded, Excluded(b)) => write!(f, "..{b:?}"),
+                (Included(a), Unbounded) => write!(f, "{a:?}.."),
+                (Included(a), Excluded(b)) => write!(f, "{a:?}..{b:?}"),
                 _ => write!(f, ""),
             }?;
         }
@@ -191,7 +191,7 @@ impl<T> RangeSetRef<T> {
     where
         T: Ord,
     {
-        if is_strictly_sorted(&boundaries) {
+        if is_strictly_sorted(boundaries) {
             Some(Self::new_unchecked_impl(boundaries))
         } else {
             None
@@ -967,7 +967,7 @@ struct XorOp;
 struct IntersectionOp<const T: usize>;
 struct DiffOp<const T: usize>;
 
-impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for UnionOp {
+impl<T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for UnionOp {
     fn from_a(&self, m: &mut M, n: usize) -> bool {
         m.advance_a(n, !m.bc())
     }
@@ -982,7 +982,7 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for UnionOp {
     }
 }
 
-impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>, const X: usize> MergeOperation<M>
+impl<T: Ord, M: MergeStateMut<A = T, B = T>, const X: usize> MergeOperation<M>
     for IntersectionOp<X>
 {
     fn from_a(&self, m: &mut M, n: usize) -> bool {
@@ -1000,7 +1000,7 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>, const X: usize> MergeOperation<
     const MCM_THRESHOLD: usize = X;
 }
 
-impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>, const X: usize> MergeOperation<M> for DiffOp<X> {
+impl<T: Ord, M: MergeStateMut<A = T, B = T>, const X: usize> MergeOperation<M> for DiffOp<X> {
     fn from_a(&self, m: &mut M, n: usize) -> bool {
         m.advance_a(n, !m.bc())
     }
@@ -1016,7 +1016,7 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>, const X: usize> MergeOperation<
     const MCM_THRESHOLD: usize = X;
 }
 
-impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for XorOp {
+impl<T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for XorOp {
     fn from_a(&self, m: &mut M, n: usize) -> bool {
         m.advance_a(n, true)
     }
@@ -1055,7 +1055,7 @@ fn is_strictly_sorted<T: Ord>(ranges: &[T]) -> bool {
 ///   contains(left, x) == contains(ranges, x) for x < at
 ///   contains(right, x) == contains(ranges, x) for x >= at
 #[inline]
-fn split<'a, T: Ord>(ranges: &'a [T], at: T) -> (&'a [T], &'a [T]) {
+fn split<T: Ord>(ranges: &[T], at: T) -> (&[T], &[T]) {
     let l = ranges.len();
     let res = ranges.binary_search(&at);
     match res {
@@ -1174,7 +1174,7 @@ mod util_tests {
             (&[0, 2, 4, 8], 6, (&[0, 2, 4, 8], &[4, 8])),
         ];
         for (ranges, pos, (left, right)) in cases {
-            assert_eq!(split(&ranges, pos), (left, right));
+            assert_eq!(split(ranges, pos), (left, right));
         }
     }
 
@@ -1189,7 +1189,7 @@ mod util_tests {
             (&[0, 2, 4, 8], 8..12, false),
         ];
         for (ranges, range, expected) in cases {
-            assert_eq!(intersects(&ranges, range), expected);
+            assert_eq!(intersects(ranges, range), expected);
         }
     }
 
@@ -1279,9 +1279,9 @@ mod tests {
 
         println!("{:?} {:?} {:?} {:?}", x, y, z, r);
 
-        let r2: Test = (&x).bitand(&y);
-        let r3: Test = (&x).bitxor(&y);
-        let r4 = (&y).is_disjoint(&z);
+        let r2: Test = x.bitand(&y);
+        let r3: Test = x.bitxor(&y);
+        let r4 = y.is_disjoint(&z);
         let r5 = (&y).bitand(&z);
 
         println!("{:?}", r2);
