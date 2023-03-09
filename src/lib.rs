@@ -1,4 +1,4 @@
-//! collections (set and maps) with ranges as keys, backed by `SmallVec<T>`
+//! A set of non-overlapping ranges, backed by `SmallVec<T>`
 #[cfg(test)]
 extern crate quickcheck;
 

@@ -1163,6 +1163,7 @@ mod util_tests {
 
     #[test]
     fn test_split_0() {
+        #[allow(clippy::type_complexity)]
         let cases: Vec<(&[u64], u64, (&[u64], &[u64]))> = vec![
             (&[0, 2], 0, (&[], &[0, 2])),
             (&[0, 2], 2, (&[0, 2], &[])),
