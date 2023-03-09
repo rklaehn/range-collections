@@ -143,6 +143,15 @@ impl<T> From<RangeFrom<T>> for RangeSetRange<T> {
     }
 }
 
+impl<T: RangeSetEntry, A: Array<Item = T>> From<RangeSetRange<T>> for RangeSet<A> {
+    fn from(value: RangeSetRange<T>) -> Self {
+        match value {
+            RangeSetRange::Range(r) => RangeSet::from(r),
+            RangeSetRange::RangeFrom(r) => RangeSet::from(r),
+        }
+    }
+}
+
 impl<T: Debug> Debug for RangeSetRange<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
