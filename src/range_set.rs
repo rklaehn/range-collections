@@ -96,19 +96,19 @@ impl<T, A: Array<Item = T>> Deref for RangeSet<A> {
     type Target = RangeSetRef<T>;
 
     fn deref(&self) -> &Self::Target {
-        RangeSetRef::new_unchecked(&self.0)
+        RangeSetRef::new_unchecked_impl(&self.0)
     }
 }
 
 impl<T, A: Array<Item = T>> AsRef<RangeSetRef<T>> for RangeSet<A> {
     fn as_ref(&self) -> &RangeSetRef<T> {
-        RangeSetRef::new_unchecked(&self.0)
+        RangeSetRef::new_unchecked_impl(&self.0)
     }
 }
 
 impl<T, A: Array<Item = T>> Borrow<RangeSetRef<T>> for RangeSet<A> {
     fn borrow(&self) -> &RangeSetRef<T> {
-        RangeSetRef::new_unchecked(&self.0)
+        RangeSetRef::new_unchecked_impl(&self.0)
     }
 }
 
@@ -183,12 +183,16 @@ pub struct RangeSetRef<T>([T]);
 
 impl<T> RangeSetRef<T> {
     /// Create a new range set reference
+    ///
+    /// This performs a check that the boundaries are strictly sorted.
+    /// If you want to avoid this check, use `new_unchecked`
+    /// (behind a feature flag because it is unsafe)
     pub fn new(boundaries: &[T]) -> Option<&Self>
     where
         T: Ord,
     {
         if is_strictly_sorted(&boundaries) {
-            Some(Self::new_unchecked(boundaries))
+            Some(Self::new_unchecked_impl(boundaries))
         } else {
             None
         }
@@ -210,12 +214,21 @@ impl<T> RangeSetRef<T> {
         T: Ord,
     {
         let (left, right) = split(&self.0, at);
-        (Self::new_unchecked(left), Self::new_unchecked(right))
+        (
+            Self::new_unchecked_impl(left),
+            Self::new_unchecked_impl(right),
+        )
     }
 
     /// Create a new range set reference without checking that the boundaries are
     /// strictly sorted.
-    fn new_unchecked(boundaries: &[T]) -> &Self {
+    #[cfg(feature = "new_unchecked")]
+    pub fn new_unchecked(boundaries: &[T]) -> &Self {
+        Self::new_unchecked_impl(boundaries)
+    }
+
+    #[inline]
+    fn new_unchecked_impl(boundaries: &[T]) -> &Self {
         Self::ref_cast(boundaries)
     }
 
@@ -287,7 +300,7 @@ impl<T> RangeSetRef<T> {
         A: Array<Item = T>,
         T: Ord + Clone,
     {
-        RangeSet::new(VecMergeState::merge(
+        RangeSet::new_unchecked_impl(VecMergeState::merge(
             self.boundaries(),
             that.boundaries(),
             IntersectionOp::<{ usize::MAX }>,
@@ -300,7 +313,7 @@ impl<T> RangeSetRef<T> {
         A: Array<Item = T>,
         T: Ord + Clone,
     {
-        RangeSet::new(VecMergeState::merge(
+        RangeSet::new_unchecked_impl(VecMergeState::merge(
             self.boundaries(),
             that.boundaries(),
             UnionOp,
@@ -313,7 +326,7 @@ impl<T> RangeSetRef<T> {
         A: Array<Item = T>,
         T: Ord + Clone,
     {
-        RangeSet::new(VecMergeState::merge(
+        RangeSet::new_unchecked_impl(VecMergeState::merge(
             self.boundaries(),
             that.boundaries(),
             DiffOp::<{ usize::MAX }>,
@@ -326,7 +339,7 @@ impl<T> RangeSetRef<T> {
         A: Array<Item = T>,
         T: Ord + Clone,
     {
-        RangeSet::new(VecMergeState::merge(
+        RangeSet::new_unchecked_impl(VecMergeState::merge(
             self.boundaries(),
             that.boundaries(),
             XorOp,
@@ -468,8 +481,31 @@ impl<T: Ord> RangeSetEntry for &[T] {
 }
 
 impl<T, A: Array<Item = T>> RangeSet<A> {
+    /// create a new range set from the given boundaries
+    ///
+    /// This performs a check that the boundaries are strictly sorted.
+    /// If you want to avoid this check, use `new_unchecked`
+    /// (behind a feature flag because it is unsafe)
+    pub fn new(boundaries: SmallVec<A>) -> Option<Self>
+    where
+        A::Item: Ord,
+    {
+        if is_strictly_sorted(boundaries.as_ref()) {
+            Some(Self::new_unchecked_impl(boundaries))
+        } else {
+            None
+        }
+    }
+
+    /// Create a new range set reference without checking that the boundaries are
+    /// strictly sorted.
+    #[cfg(feature = "new_unchecked")]
+    pub fn new_unchecked(boundaries: SmallVec<A>) -> Self {
+        Self::new_unchecked_impl(boundaries)
+    }
+
     /// note that this is private since it does not check the invariants!
-    fn new(boundaries: SmallVec<A>) -> Self {
+    fn new_unchecked_impl(boundaries: SmallVec<A>) -> Self {
         RangeSet(boundaries)
     }
 
@@ -491,12 +527,12 @@ impl<T: RangeSetEntry, A: Array<Item = T>> RangeSet<A> {
             t.push(T::min_value());
             t.push(a);
         }
-        Self::new(t)
+        Self::new_unchecked_impl(t)
     }
     fn from_range_from(a: T) -> Self {
         let mut t = SmallVec::new();
         t.push(a);
-        Self::new(t)
+        Self::new_unchecked_impl(t)
     }
     /// the empty range set
     pub fn empty() -> Self {
@@ -547,7 +583,7 @@ impl<T: RangeSetEntry, A: Array<Item = T>> RangeSet<A> {
             let mut t = SmallVec::new();
             t.push(a.start);
             t.push(a.end);
-            Self::new(t)
+            Self::new_unchecked_impl(t)
         } else {
             Self::empty()
         }
@@ -1191,7 +1227,7 @@ mod tests {
             boundaries.truncate(4);
             boundaries.sort();
             boundaries.dedup();
-            Self::new(boundaries.into())
+            Self::new_unchecked_impl(boundaries.into())
         }
     }
 

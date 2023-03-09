@@ -23,6 +23,7 @@ ref-cast = "1.0.15"
 [features]
 default = []
 rkyv_validated = ["rkyv", "bytecheck"]
+new_unchecked = []
 
 [dev-dependencies]
 quickcheck = "0.8"
