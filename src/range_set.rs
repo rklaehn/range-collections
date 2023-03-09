@@ -11,7 +11,11 @@ use core::ops::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Bound::*, Not, Range,
     RangeFrom, RangeTo, Sub, SubAssign,
 };
+use ref_cast::RefCast;
 use smallvec::{Array, SmallVec};
+use std::borrow::Borrow;
+use std::num::*;
+use std::ops::Deref;
 #[cfg(feature = "serde")]
 use {
     core::{fmt, marker::PhantomData},
@@ -88,6 +92,26 @@ use {
 /// Testing is done by some simple smoke tests as well as quickcheck tests of the algebraic properties of the boolean operations.
 pub struct RangeSet<A: Array>(SmallVec<A>);
 
+impl<T, A: Array<Item = T>> Deref for RangeSet<A> {
+    type Target = RangeSetRef<T>;
+
+    fn deref(&self) -> &Self::Target {
+        RangeSetRef::new_unchecked(&self.0)
+    }
+}
+
+impl<T, A: Array<Item = T>> AsRef<RangeSetRef<T>> for RangeSet<A> {
+    fn as_ref(&self) -> &RangeSetRef<T> {
+        RangeSetRef::new_unchecked(&self.0)
+    }
+}
+
+impl<T, A: Array<Item = T>> Borrow<RangeSetRef<T>> for RangeSet<A> {
+    fn borrow(&self) -> &RangeSetRef<T> {
+        RangeSetRef::new_unchecked(&self.0)
+    }
+}
+
 impl<A: Array> Clone for RangeSet<A>
 where
     A::Item: Clone,
@@ -97,12 +121,12 @@ where
     }
 }
 
-impl<A: Array, R: AbstractRangeSet<A::Item>> PartialEq<R> for RangeSet<A>
+impl<A: Array, R: AsRef<RangeSetRef<A::Item>>> PartialEq<R> for RangeSet<A>
 where
     A::Item: RangeSetEntry,
 {
     fn eq(&self, that: &R) -> bool {
-        AbstractRangeSet::<A::Item>::boundaries(self) == that.boundaries()
+        self.boundaries() == that.as_ref().boundaries()
     }
 }
 
@@ -152,24 +176,56 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
-/// Anything that provides sorted boundaries
-///
-/// This is just implemented for ArchivedRangeSet and RangeSet.
-/// It probably does not make sense to implement it yourself.
-pub trait AbstractRangeSet<T> {
-    /// the boundaries as a reference - must be strictly sorted
-    fn boundaries(&self) -> &[T];
+/// A reference to a range set
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, RefCast)]
+#[repr(transparent)]
+pub struct RangeSetRef<T>([T]);
 
-    /// convert to a normal range set
-    fn to_range_set<A: Array<Item = T>>(&self) -> RangeSet<A>
+impl<T> RangeSetRef<T> {
+    /// Create a new range set reference
+    pub fn new(boundaries: &[T]) -> Option<&Self>
     where
-        T: Clone,
+        T: Ord,
     {
-        RangeSet::new(self.boundaries().into())
+        if is_strictly_sorted(&boundaries) {
+            Some(Self::new_unchecked(boundaries))
+        } else {
+            None
+        }
+    }
+
+    /// Split this range set into two parts `left`, `right` at position `at`,
+    /// so that `left` is identical to `self` for all `x < at`
+    /// and `right` is identical to `self` for all `x >= at`.
+    ///
+    /// More precisely:
+    ///   contains(left, x) == contains(ranges, x) for x < at
+    ///   contains(right, x) == contains(ranges, x) for x >= at
+    ///
+    /// This is not the same as limiting the ranges to the left or right of
+    /// `at`, but it is much faster. It requires just a binary search and no
+    /// allocations.
+    pub fn split(&self, at: T) -> (&Self, &Self)
+    where
+        T: Ord,
+    {
+        let (left, right) = split(&self.0, at);
+        (Self::new_unchecked(left), Self::new_unchecked(right))
+    }
+
+    /// Create a new range set reference without checking that the boundaries are
+    /// strictly sorted.
+    fn new_unchecked(boundaries: &[T]) -> &Self {
+        Self::ref_cast(boundaries)
+    }
+
+    /// The boundaries of the range set, guaranteed to be strictly sorted
+    pub fn boundaries(&self) -> &[T] {
+        &self.0
     }
 
     /// true if the value is contained in the range set
-    fn contains(&self, value: &T) -> bool
+    pub fn contains(&self, value: &T) -> bool
     where
         T: Ord,
     {
@@ -180,12 +236,12 @@ pub trait AbstractRangeSet<T> {
     }
 
     /// true if the range set is empty
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.boundaries().is_empty()
     }
 
     /// true if the range set contains all values
-    fn is_all(&self) -> bool
+    pub fn is_all(&self) -> bool
     where
         T: RangeSetEntry,
     {
@@ -193,9 +249,9 @@ pub trait AbstractRangeSet<T> {
     }
 
     /// true if this range set is disjoint from another range set
-    fn is_disjoint(&self, that: &impl AbstractRangeSet<T>) -> bool
+    pub fn is_disjoint(&self, that: &RangeSetRef<T>) -> bool
     where
-        T: RangeSetEntry,
+        T: Ord,
     {
         !RangeSetBoolOpMergeState::merge(self.boundaries(), that.boundaries(), IntersectionOp::<0>)
     }
@@ -203,7 +259,7 @@ pub trait AbstractRangeSet<T> {
     /// true if this range set is a superset of another range set
     ///
     /// A range set is considered to be a superset of itself
-    fn is_subset(&self, that: impl AbstractRangeSet<T>) -> bool
+    pub fn is_subset(&self, that: &RangeSetRef<T>) -> bool
     where
         T: Ord,
     {
@@ -213,7 +269,7 @@ pub trait AbstractRangeSet<T> {
     /// true if this range set is a subset of another range set
     ///
     /// A range set is considered to be a subset of itself
-    fn is_superset(&self, that: impl AbstractRangeSet<T>) -> bool
+    pub fn is_superset(&self, that: &RangeSetRef<T>) -> bool
     where
         T: Ord,
     {
@@ -221,11 +277,12 @@ pub trait AbstractRangeSet<T> {
     }
 
     /// iterate over all ranges in this range set
-    fn iter(&self) -> Iter<T> {
+    pub fn iter(&self) -> Iter<T> {
         Iter(self.boundaries())
     }
+
     /// intersection
-    fn intersection<A>(&self, that: &impl AbstractRangeSet<T>) -> RangeSet<A>
+    pub fn intersection<A>(&self, that: &RangeSetRef<T>) -> RangeSet<A>
     where
         A: Array<Item = T>,
         T: Ord + Clone,
@@ -236,8 +293,9 @@ pub trait AbstractRangeSet<T> {
             IntersectionOp::<{ usize::MAX }>,
         ))
     }
+
     /// union
-    fn union<A>(&self, that: &impl AbstractRangeSet<T>) -> RangeSet<A>
+    pub fn union<A>(&self, that: &RangeSetRef<T>) -> RangeSet<A>
     where
         A: Array<Item = T>,
         T: Ord + Clone,
@@ -248,8 +306,9 @@ pub trait AbstractRangeSet<T> {
             UnionOp,
         ))
     }
+
     /// difference
-    fn difference<A>(&self, that: &impl AbstractRangeSet<T>) -> RangeSet<A>
+    pub fn difference<A>(&self, that: &RangeSetRef<T>) -> RangeSet<A>
     where
         A: Array<Item = T>,
         T: Ord + Clone,
@@ -260,8 +319,9 @@ pub trait AbstractRangeSet<T> {
             DiffOp::<{ usize::MAX }>,
         ))
     }
+
     /// symmetric difference (xor)
-    fn symmetric_difference<A>(&self, that: &impl AbstractRangeSet<T>) -> RangeSet<A>
+    pub fn symmetric_difference<A>(&self, that: &RangeSetRef<T>) -> RangeSet<A>
     where
         A: Array<Item = T>,
         T: Ord + Clone,
@@ -274,35 +334,26 @@ pub trait AbstractRangeSet<T> {
     }
 }
 
-impl<A: Array> AbstractRangeSet<A::Item> for RangeSet<A>
-where
-    A::Item: RangeSetEntry,
-{
-    fn boundaries(&self) -> &[A::Item] {
-        self.0.as_ref()
-    }
-}
+#[cfg(feature = "rkyv")]
+impl<T> Deref for ArchivedRangeSet<T> {
+    type Target = RangeSetRef<T>;
 
-impl<A: Array> AbstractRangeSet<A::Item> for &RangeSet<A>
-where
-    A::Item: RangeSetEntry,
-{
-    fn boundaries(&self) -> &[A::Item] {
-        self.0.as_ref()
+    fn deref(&self) -> &Self::Target {
+        RangeSetRef::new_unchecked(&self.0)
     }
 }
 
 #[cfg(feature = "rkyv")]
-impl<T> AbstractRangeSet<T> for ArchivedRangeSet<T> {
-    fn boundaries(&self) -> &[T] {
-        self.0.as_ref()
+impl<T> AsRef<RangeSetRef<T>> for ArchivedRangeSet<T> {
+    fn as_ref(&self) -> &RangeSetRef<T> {
+        RangeSetRef::new_unchecked(&self.0)
     }
 }
 
 #[cfg(feature = "rkyv")]
-impl<T> AbstractRangeSet<T> for &ArchivedRangeSet<T> {
-    fn boundaries(&self) -> &[T] {
-        self.0.as_ref()
+impl<T> Borrow<RangeSetRef<T>> for ArchivedRangeSet<T> {
+    fn borrow(&self) -> &RangeSetRef<T> {
+        RangeSetRef::new_unchecked(&self.0)
     }
 }
 
@@ -337,8 +388,44 @@ macro_rules! entry_instance {
     }
 }
 
+macro_rules! non_zero_u_entry_instance {
+    ($t:tt) => {
+        impl RangeSetEntry for $t {
+            fn min_value() -> Self {
+                $t::new(1).unwrap()
+            }
+
+            fn is_min_value(&self) -> bool {
+                *self == $t::new(1).unwrap()
+            }
+        }
+    };
+    ($t:tt, $($rest:tt),+) => {
+        non_zero_u_entry_instance!($t);
+        non_zero_u_entry_instance!($( $rest ),*);
+    }
+}
+
 entry_instance!(u8, u16, u32, u64, u128, usize);
 entry_instance!(i8, i16, i32, i64, i128, isize);
+non_zero_u_entry_instance!(
+    NonZeroU8,
+    NonZeroU16,
+    NonZeroU32,
+    NonZeroU64,
+    NonZeroU128,
+    NonZeroUsize
+);
+
+impl<T: Ord> RangeSetEntry for Option<T> {
+    fn min_value() -> Self {
+        None
+    }
+
+    fn is_min_value(&self) -> bool {
+        self.is_none()
+    }
+}
 
 impl RangeSetEntry for String {
     fn min_value() -> Self {
@@ -423,7 +510,7 @@ impl<T: RangeSetEntry, A: Array<Item = T>> RangeSet<A> {
 
 impl<T: RangeSetEntry + Clone, A: Array<Item = T>> RangeSet<A> {
     /// intersection in place
-    pub fn intersection_with(&mut self, that: &impl AbstractRangeSet<T>) {
+    pub fn intersection_with(&mut self, that: &RangeSetRef<T>) {
         InPlaceMergeStateRef::merge(
             &mut self.0,
             &that.boundaries(),
@@ -431,15 +518,15 @@ impl<T: RangeSetEntry + Clone, A: Array<Item = T>> RangeSet<A> {
         );
     }
     /// union in place
-    pub fn union_with(&mut self, that: &impl AbstractRangeSet<T>) {
+    pub fn union_with(&mut self, that: &RangeSetRef<T>) {
         InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), UnionOp);
     }
     /// difference in place
-    pub fn difference_with(&mut self, that: &impl AbstractRangeSet<T>) {
+    pub fn difference_with(&mut self, that: &RangeSetRef<T>) {
         InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), DiffOp::<{ usize::MAX }>);
     }
     /// symmetric difference in place (xor)
-    pub fn symmetric_difference_with(&mut self, that: &impl AbstractRangeSet<T>) {
+    pub fn symmetric_difference_with(&mut self, that: &RangeSetRef<T>) {
         InPlaceMergeStateRef::merge(&mut self.0, &that.boundaries(), XorOp);
     }
 }
@@ -575,11 +662,6 @@ impl<T: RangeSetEntry + Clone, A: Array<Item = T>> Not for &RangeSet<A> {
     fn not(self) -> Self::Output {
         self ^ &RangeSet::all()
     }
-}
-
-#[inline]
-fn is_odd(x: usize) -> bool {
-    (x & 1) != 0
 }
 
 struct RangeSetBoolOpMergeState<'a, T> {
@@ -899,6 +981,183 @@ impl<'a, T: Ord, M: MergeStateMut<A = T, B = T>> MergeOperation<M> for XorOp {
     }
     fn cmp(&self, a: &T, b: &T) -> Ordering {
         a.cmp(b)
+    }
+}
+
+#[inline]
+fn is_odd(x: usize) -> bool {
+    (x & 1) != 0
+}
+
+#[inline]
+fn is_even(x: usize) -> bool {
+    (x & 1) == 0
+}
+
+fn is_strictly_sorted<T: Ord>(ranges: &[T]) -> bool {
+    for i in 0..ranges.len().saturating_sub(1) {
+        if ranges[i] >= ranges[i + 1] {
+            return false;
+        }
+    }
+    true
+}
+
+/// Split a strictly ordered sequence of boundaries `ranges` into two parts
+/// `left`, `right` at position `at`, so that
+///   contains(left, x) == contains(ranges, x) for x < at
+///   contains(right, x) == contains(ranges, x) for x >= at
+#[inline]
+fn split<'a, T: Ord>(ranges: &'a [T], at: T) -> (&'a [T], &'a [T]) {
+    let l = ranges.len();
+    let res = ranges.binary_search(&at);
+    match res {
+        Ok(i) if is_even(i) => {
+            // left will be an even size, so we can just cut it off
+            (&ranges[..i], &ranges[i..])
+        }
+        Err(i) if is_even(i) => {
+            // right will be an even size, so we can just cut it off
+            (&ranges[..i], &ranges[i..])
+        }
+        Ok(i) => {
+            // left will be an odd size, so we need to add one if possible
+            //
+            // since i is an odd value, it indicates going to false at the
+            // split point, and we don't need to have it in right.
+            let sp = i.saturating_add(1).min(l);
+            (&ranges[..sp], &ranges[sp..])
+        }
+        Err(i) => {
+            // left will be an odd size, so we add one if possible
+            //
+            // i is an odd value, so right is true at the split point, and
+            // we need to add one value before the split point to right.
+            // hence the saturating_sub(1).
+            (
+                &ranges[..i.saturating_add(1).min(l)],
+                &ranges[i.saturating_sub(1)..],
+            )
+        }
+    }
+}
+
+/// For a strictly ordered sequence of boundaries `ranges`, checks if the
+/// value at `at` is true.
+#[allow(dead_code)]
+fn contains<T: Ord>(boundaries: &[T], value: &T) -> bool {
+    match boundaries.binary_search(value) {
+        Ok(index) => !is_odd(index),
+        Err(index) => is_odd(index),
+    }
+}
+
+/// Check if a sequence of boundaries `ranges` intersects with a range
+#[allow(dead_code)]
+fn intersects<T: Ord>(boundaries: &[T], range: Range<T>) -> bool {
+    let (_, remaining) = split(boundaries, range.start);
+    let (remaining, _) = split(remaining, range.end);
+    // remaining is not the intersection but can be larger.
+    // But if remaining is empty, then we know that the intersection is empty.
+    !remaining.is_empty()
+}
+
+#[cfg(test)]
+mod util_tests {
+    use std::{collections::BTreeSet, ops::Range};
+
+    use super::*;
+    use proptest::prelude::*;
+
+    fn test_points(boundaries: impl IntoIterator<Item = u64>) -> BTreeSet<u64> {
+        let mut res = BTreeSet::new();
+        for x in boundaries {
+            res.insert(x.saturating_sub(1));
+            res.insert(x);
+            res.insert(x.saturating_add(1));
+        }
+        res
+    }
+
+    fn test_boundaries() -> impl Strategy<Value = (Vec<u64>, u64)> {
+        proptest::collection::vec(any::<u64>(), 0..100).prop_flat_map(|mut v| {
+            v.sort();
+            v.dedup();
+            // split point should occasionally be outside of the range
+            let max_split = v
+                .iter()
+                .max()
+                .cloned()
+                .unwrap_or_default()
+                .saturating_add(2);
+            (Just(v), 0..max_split)
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn test_split((boundaries, at) in test_boundaries()) {
+            let (left, right) = split(&boundaries, at);
+            for x in test_points(boundaries.clone()) {
+                // test that split does what it promises
+                if x < at {
+                    prop_assert_eq!(contains(left, &x), contains(&boundaries, &x), "left must be like boundaries for x < at");
+                } else {
+                    prop_assert_eq!(contains(right, &x), contains(&boundaries, &x), "right must be like boundaries for x >= at");
+                }
+                // test that split is not just returning the input, but minimal parts
+                let nr = right.iter().filter(|x| x < &&at).count();
+                prop_assert!(nr <= 1, "there must be at most one boundary before the split point");
+                let nl = left.iter().filter(|x| x >= &&at).count();
+                prop_assert!(nl <= 1, "there must be at most one boundary after the split point");
+            }
+        }
+    }
+
+    #[test]
+    fn test_split_0() {
+        let cases: Vec<(&[u64], u64, (&[u64], &[u64]))> = vec![
+            (&[0, 2], 0, (&[], &[0, 2])),
+            (&[0, 2], 2, (&[0, 2], &[])),
+            (&[0, 2, 4], 2, (&[0, 2], &[4])),
+            (&[0, 2, 4], 4, (&[0, 2], &[4])),
+            (&[0, 2, 4, 8], 2, (&[0, 2], &[4, 8])),
+            (&[0, 2, 4, 8], 4, (&[0, 2], &[4, 8])),
+            (&[0, 2, 4, 8], 3, (&[0, 2], &[4, 8])),
+            (&[0, 2, 4, 8], 6, (&[0, 2, 4, 8], &[4, 8])),
+        ];
+        for (ranges, pos, (left, right)) in cases {
+            assert_eq!(split(&ranges, pos), (left, right));
+        }
+    }
+
+    #[test]
+    fn test_intersects_0() {
+        let cases: Vec<(&[u64], Range<u64>, bool)> = vec![
+            (&[0, 2], 0..2, true),
+            (&[0, 2], 2..4, false),
+            (&[0, 2, 4, 8], 0..2, true),
+            (&[0, 2, 4, 8], 2..4, false),
+            (&[0, 2, 4, 8], 4..8, true),
+            (&[0, 2, 4, 8], 8..12, false),
+        ];
+        for (ranges, range, expected) in cases {
+            assert_eq!(intersects(&ranges, range), expected);
+        }
+    }
+
+    #[test]
+    fn contains_0() {
+        let cases: Vec<(&[u64], u64, bool)> = vec![
+            (&[0, 2], 0, true),
+            (&[0, 2], 1, true),
+            (&[0, 2], 2, false),
+            (&[0, 2, 4, 8], 3, false),
+            (&[0, 2, 4, 8], 4, true),
+        ];
+        for (ranges, pos, expected) in cases {
+            assert_eq!(contains(ranges, &pos), expected);
+        }
     }
 }
 

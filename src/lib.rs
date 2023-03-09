@@ -13,4 +13,4 @@ mod iterators;
 
 pub mod range_set;
 
-pub use range_set::{AbstractRangeSet, RangeSet, RangeSet2};
+pub use range_set::{RangeSet, RangeSet2, RangeSetRef};
