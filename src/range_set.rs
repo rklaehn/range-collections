@@ -261,6 +261,17 @@ impl<T> RangeSetRef<T> {
         self.boundaries().len() == 1 && self.boundaries()[0].is_min_value()
     }
 
+    /// true if this range set intersects from another range set
+    ///
+    /// This is just the opposite of `is_disjoint`, but is provided for
+    /// better discoverability.
+    pub fn intersects(&self, that: &RangeSetRef<T>) -> bool
+    where
+        T: Ord,
+    {
+        !self.is_disjoint(that)
+    }
+
     /// true if this range set is disjoint from another range set
     pub fn is_disjoint(&self, that: &RangeSetRef<T>) -> bool
     where

@@ -1,4 +1,4 @@
-//! collections (set and maps) with ranges as keys, backed by SmallVec<T>
+//! collections (set and maps) with ranges as keys, backed by `SmallVec<T>`
 #[cfg(test)]
 extern crate quickcheck;
 
