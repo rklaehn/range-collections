@@ -8,14 +8,14 @@ use binary_merge::{MergeOperation, MergeState};
 use core::cmp::Ordering;
 use core::fmt::Debug;
 use core::ops::{
-    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Bound::*, Not, Range,
-    RangeFrom, RangeTo, Sub, SubAssign,
+    BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Not, Range, RangeFrom,
+    RangeTo, Sub, SubAssign,
 };
 use ref_cast::RefCast;
 use smallvec::{Array, SmallVec};
 use std::borrow::Borrow;
 use std::num::*;
-use std::ops::Deref;
+use std::ops::{Deref, RangeBounds};
 #[cfg(feature = "serde")]
 use {
     core::{fmt, marker::PhantomData},
@@ -112,6 +112,62 @@ impl<T, A: Array<Item = T>> Borrow<RangeSetRef<T>> for RangeSet<A> {
     }
 }
 
+#[derive(Clone)]
+/// Range that can be part of a range set
+pub enum RangeSetRange<T> {
+    /// Closed range
+    Range(Range<T>),
+    /// Range with unbounded end
+    RangeFrom(RangeFrom<T>),
+}
+
+impl<T: Clone> RangeSetRange<&T> {
+    /// Maps a `RangeSetRange<&T>` to a `RangeSetRange<T>` by cloning start and end.
+    pub fn cloned(&self) -> RangeSetRange<T> {
+        match self {
+            RangeSetRange::Range(r) => RangeSetRange::Range(r.start.clone()..r.end.clone()),
+            RangeSetRange::RangeFrom(r) => RangeSetRange::RangeFrom(r.start.clone()..),
+        }
+    }
+}
+
+impl<T> From<Range<T>> for RangeSetRange<T> {
+    fn from(r: Range<T>) -> Self {
+        RangeSetRange::Range(r)
+    }
+}
+
+impl<T> From<RangeFrom<T>> for RangeSetRange<T> {
+    fn from(r: RangeFrom<T>) -> Self {
+        RangeSetRange::RangeFrom(r)
+    }
+}
+
+impl<T: Debug> Debug for RangeSetRange<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RangeSetRange::Range(r) => r.fmt(f),
+            RangeSetRange::RangeFrom(r) => r.fmt(f),
+        }
+    }
+}
+
+impl<T> RangeBounds<T> for RangeSetRange<T> {
+    fn start_bound(&self) -> Bound<&T> {
+        match self {
+            RangeSetRange::Range(r) => r.start_bound(),
+            RangeSetRange::RangeFrom(r) => r.start_bound(),
+        }
+    }
+
+    fn end_bound(&self) -> Bound<&T> {
+        match self {
+            RangeSetRange::Range(r) => r.end_bound(),
+            RangeSetRange::RangeFrom(r) => r.end_bound(),
+        }
+    }
+}
+
 impl<A: Array> Clone for RangeSet<A>
 where
     A::Item: Clone,
@@ -138,17 +194,11 @@ pub type RangeSet2<T> = RangeSet<[T; 2]>;
 impl<T: Debug, A: Array<Item = T>> Debug for RangeSet<A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "RangeSet{{")?;
-        for (i, (l, u)) in self.iter().enumerate() {
+        for (i, r) in self.iter().enumerate() {
             if i > 0 {
                 write!(f, ", ")?;
             }
-            match (l, u) {
-                (Unbounded, Unbounded) => write!(f, ".."),
-                (Unbounded, Excluded(b)) => write!(f, "..{b:?}"),
-                (Included(a), Unbounded) => write!(f, "{a:?}.."),
-                (Included(a), Excluded(b)) => write!(f, "{a:?}..{b:?}"),
-                _ => write!(f, ""),
-            }?;
+            write!(f, "{r:?}")?;
         }
         write!(f, "}}")
     }
@@ -158,17 +208,17 @@ impl<T: Debug, A: Array<Item = T>> Debug for RangeSet<A> {
 pub struct Iter<'a, T>(&'a [T]);
 
 impl<'a, T> Iterator for Iter<'a, T> {
-    type Item = (Bound<&'a T>, Bound<&'a T>);
+    type Item = RangeSetRange<&'a T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let bounds = self.0;
         if !bounds.is_empty() {
             Some(if bounds.len() == 1 {
                 self.0 = &bounds[1..];
-                (Included(&bounds[0]), Unbounded)
+                RangeSetRange::from(&bounds[0]..)
             } else {
                 self.0 = &bounds[2..];
-                (Included(&bounds[0]), Excluded(&bounds[1]))
+                RangeSetRange::from(&bounds[0]..&bounds[1])
             })
         } else {
             None
@@ -182,6 +232,11 @@ impl<'a, T> Iterator for Iter<'a, T> {
 pub struct RangeSetRef<T>([T]);
 
 impl<T> RangeSetRef<T> {
+    /// Create a new range set reference for a single value
+    pub fn single(value: &T) -> &Self {
+        RangeSetRef::new_unchecked_impl(std::slice::from_ref(value))
+    }
+
     /// Create a new range set reference
     ///
     /// This performs a check that the boundaries are strictly sorted.
@@ -1354,6 +1409,7 @@ mod tests {
     fn ranges_consistent(a: Test) -> bool {
         let mut b = Test::empty();
         for e in a.iter() {
+            let e = e.cloned();
             b |= Test::from_range_bounds(e).unwrap();
         }
         a == b

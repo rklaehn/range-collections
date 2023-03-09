@@ -1,6 +1,6 @@
 use rand::prelude::*;
 use range_collections::{range_set::RangeSet2, RangeSet};
-use std::ops::{Bound, Range};
+use std::ops::{Bound, Range, RangeBounds};
 
 fn create_messages(n: usize, delay: usize) -> Vec<Range<usize>> {
     let mut rng = rand::rngs::StdRng::seed_from_u64(0);
@@ -47,12 +47,15 @@ fn main() {
     for (i, msg) in msgs.into_iter().enumerate() {
         buffer |= RangeSet::from(msg);
         if (i % 1000) == 0 {
-            if let Some((_, Bound::Excluded(end))) = buffer.iter().next() {
-                println!(
-                    "After {} msgs, the last contiguous sequence number is {:?}",
-                    i,
-                    end - 1
-                );
+            if let Some(r) = buffer.iter().next() {
+                if let Bound::Excluded(end) = r.end_bound() {
+                    let end = **end;
+                    println!(
+                        "After {} msgs, the last contiguous sequence number is {:?}",
+                        i,
+                        end - 1
+                    );
+                }
             }
         }
     }
