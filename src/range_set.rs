@@ -112,8 +112,11 @@ impl<T, A: Array<Item = T>> Borrow<RangeSetRef<T>> for RangeSet<A> {
     }
 }
 
-#[derive(Clone)]
 /// Range that can be part of a range set
+///
+/// Start boundaries are always inclusive, end boundaries are exclusive.
+/// Therefore some ranges types are not going to appear in a range set.
+#[derive(Clone)]
 pub enum RangeSetRange<T> {
     /// Closed range
     Range(Range<T>),
