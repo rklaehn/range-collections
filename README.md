@@ -1,8 +1,8 @@
 
-# Range-collections &emsp; [![Build Status]][travis] [![Latest Version]][crates.io] [![Docs Badge]][docs.rs]
+# Range-collections &emsp; [![Build Status]][status] [![Latest Version]][crates.io] [![Docs Badge]][docs.rs]
 
-[Build Status]: https://api.travis-ci.org/rklaehn/range-collections.svg?branch=master
-[travis]: https://travis-ci.org/rklaehn/range-collections
+[Build Status]: https://github.com/rklaehn/range-collections/actions/workflows/rust.yml/badge.svg
+[status]: https://github.com/rklaehn/range-collections/actions/workflows/rust.yml
 [Latest Version]: https://img.shields.io/crates/v/range-collections.svg
 [crates.io]: https://crates.io/crates/range-collections
 [Docs Badge]: https://img.shields.io/badge/docs-docs.rs-green
