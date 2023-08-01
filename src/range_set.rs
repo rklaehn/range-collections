@@ -964,17 +964,11 @@ pub struct ArchivedRangeSet<T>(rkyv::vec::ArchivedVec<T>);
 impl<T: Debug> Debug for ArchivedRangeSet<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "ArchivedRangeSet{{")?;
-        for (i, (l, u)) in self.iter().enumerate() {
+        for (i, r) in self.iter().enumerate() {
             if i > 0 {
                 write!(f, ", ")?;
             }
-            match (l, u) {
-                (Unbounded, Unbounded) => write!(f, ".."),
-                (Unbounded, Excluded(b)) => write!(f, "..{:?}", b),
-                (Included(a), Unbounded) => write!(f, "{:?}..", a),
-                (Included(a), Excluded(b)) => write!(f, "{:?}..{:?}", a, b),
-                _ => write!(f, ""),
-            }?;
+            write!(f, "{r:?}")?;
         }
         write!(f, "}}")
     }
