@@ -26,8 +26,8 @@ rkyv_validated = ["rkyv", "bytecheck"]
 new_unchecked = []
 
 [dev-dependencies]
-quickcheck = "0.8"
-quickcheck_macros = "0.8.0"
+quickcheck = "1"
+quickcheck_macros = "1"
 testdrop = "0.1.2"
 criterion = "0.3.0"
 rand = "0.8"

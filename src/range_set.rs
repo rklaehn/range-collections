@@ -1295,7 +1295,7 @@ mod tests {
     }
 
     impl<T: Arbitrary + Ord, A: Array<Item = T> + Clone + 'static> Arbitrary for RangeSet<A> {
-        fn arbitrary<G: Gen>(g: &mut G) -> Self {
+        fn arbitrary(g: &mut Gen) -> Self {
             let mut boundaries: Vec<T> = Arbitrary::arbitrary(g);
             boundaries.truncate(4);
             boundaries.sort();
