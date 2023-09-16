@@ -11,7 +11,7 @@ use core::ops::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Bound, Not, Range, RangeFrom,
     RangeTo, Sub, SubAssign,
 };
-use ref_cast::RefCast;
+use ref_cast::{ref_cast_custom, RefCastCustom};
 use smallvec::{Array, SmallVec};
 use std::borrow::Borrow;
 use std::num::*;
@@ -239,14 +239,18 @@ impl<'a, T> Iterator for Iter<'a, T> {
 }
 
 /// A reference to a range set
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, RefCast)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, RefCastCustom)]
 #[repr(transparent)]
 pub struct RangeSetRef<T>([T]);
 
 impl<T> RangeSetRef<T> {
+    /// Create a new range set reference for an empty range set
+    pub const fn empty() -> &'static Self {
+        RangeSetRef::new_unchecked_impl(&[])
+    }
 
     /// Create a new range set reference for a single value
-    pub fn single(value: &T) -> &Self {
+    pub const fn single(value: &T) -> &Self {
         RangeSetRef::new_unchecked_impl(std::slice::from_ref(value))
     }
 
@@ -291,17 +295,15 @@ impl<T> RangeSetRef<T> {
     /// Create a new range set reference without checking that the boundaries are
     /// strictly sorted.
     #[cfg(feature = "new_unchecked")]
-    pub fn new_unchecked(boundaries: &[T]) -> &Self {
+    pub const fn new_unchecked(boundaries: &[T]) -> &Self {
         Self::new_unchecked_impl(boundaries)
     }
 
-    #[inline]
-    fn new_unchecked_impl(boundaries: &[T]) -> &Self {
-        Self::ref_cast(boundaries)
-    }
+    #[ref_cast_custom]
+    const fn new_unchecked_impl(boundaries: &[T]) -> &Self;
 
     /// The boundaries of the range set, guaranteed to be strictly sorted
-    pub fn boundaries(&self) -> &[T] {
+    pub const fn boundaries(&self) -> &[T] {
         &self.0
     }
 
@@ -317,7 +319,7 @@ impl<T> RangeSetRef<T> {
     }
 
     /// true if the range set is empty
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.boundaries().is_empty()
     }
 
@@ -465,6 +467,7 @@ pub trait RangeSetEntry: Ord {
 macro_rules! entry_instance {
     ($t:tt) => {
         impl RangeSetEntry for $t {
+
             fn min_value() -> Self {
                 $t::MIN
             }
@@ -483,6 +486,7 @@ macro_rules! entry_instance {
 macro_rules! non_zero_u_entry_instance {
     ($t:tt) => {
         impl RangeSetEntry for $t {
+
             fn min_value() -> Self {
                 $t::new(1).unwrap()
             }
@@ -1147,10 +1151,7 @@ fn split<T: Ord>(ranges: &[T], at: T) -> (&[T], &[T]) {
             // i is an odd value, so right is true at the split point, and
             // we need to add one value before the split point to right.
             // hence the saturating_sub(1).
-            (
-                &ranges[..i],
-                &ranges[i.saturating_sub(1)..],
-            )
+            (&ranges[..i], &ranges[i.saturating_sub(1)..])
         }
     }
 }
