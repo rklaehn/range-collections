@@ -244,6 +244,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
 pub struct RangeSetRef<T>([T]);
 
 impl<T> RangeSetRef<T> {
+
     /// Create a new range set reference for a single value
     pub fn single(value: &T) -> &Self {
         RangeSetRef::new_unchecked_impl(std::slice::from_ref(value))
@@ -1115,6 +1116,10 @@ fn is_strictly_sorted<T: Ord>(ranges: &[T]) -> bool {
 /// `left`, `right` at position `at`, so that
 ///   contains(left, x) == contains(ranges, x) for x < at
 ///   contains(right, x) == contains(ranges, x) for x >= at
+///
+/// The returned slices are guaranteed to be minimal. The left slice will contain
+/// no boundaries after the split point, and the right slice will contain at most
+/// one boundary before the split point.
 #[inline]
 fn split<T: Ord>(ranges: &[T], at: T) -> (&[T], &[T]) {
     let l = ranges.len();
@@ -1134,7 +1139,7 @@ fn split<T: Ord>(ranges: &[T], at: T) -> (&[T], &[T]) {
             // since i is an odd value, it indicates going to false at the
             // split point, and we don't need to have it in right.
             let sp = i.saturating_add(1).min(l);
-            (&ranges[..sp], &ranges[sp..])
+            (&ranges[..i], &ranges[sp..])
         }
         Err(i) => {
             // left will be an odd size, so we add one if possible
@@ -1143,7 +1148,7 @@ fn split<T: Ord>(ranges: &[T], at: T) -> (&[T], &[T]) {
             // we need to add one value before the split point to right.
             // hence the saturating_sub(1).
             (
-                &ranges[..i.saturating_add(1).min(l)],
+                &ranges[..i],
                 &ranges[i.saturating_sub(1)..],
             )
         }
@@ -1217,7 +1222,7 @@ mod util_tests {
                 let nr = right.iter().filter(|x| x < &&at).count();
                 prop_assert!(nr <= 1, "there must be at most one boundary before the split point");
                 let nl = left.iter().filter(|x| x >= &&at).count();
-                prop_assert!(nl <= 1, "there must be at most one boundary after the split point");
+                prop_assert!(nl == 0, "there must be no boundaries after the split point");
             }
         }
     }
@@ -1227,13 +1232,13 @@ mod util_tests {
         #[allow(clippy::type_complexity)]
         let cases: Vec<(&[u64], u64, (&[u64], &[u64]))> = vec![
             (&[0, 2], 0, (&[], &[0, 2])),
-            (&[0, 2], 2, (&[0, 2], &[])),
-            (&[0, 2, 4], 2, (&[0, 2], &[4])),
+            (&[0, 2], 2, (&[0], &[])),
+            (&[0, 2, 4], 2, (&[0], &[4])),
             (&[0, 2, 4], 4, (&[0, 2], &[4])),
-            (&[0, 2, 4, 8], 2, (&[0, 2], &[4, 8])),
+            (&[0, 2, 4, 8], 2, (&[0], &[4, 8])),
             (&[0, 2, 4, 8], 4, (&[0, 2], &[4, 8])),
             (&[0, 2, 4, 8], 3, (&[0, 2], &[4, 8])),
-            (&[0, 2, 4, 8], 6, (&[0, 2, 4, 8], &[4, 8])),
+            (&[0, 2, 4, 8], 6, (&[0, 2, 4], &[4, 8])),
         ];
         for (ranges, pos, (left, right)) in cases {
             assert_eq!(split(ranges, pos), (left, right));
