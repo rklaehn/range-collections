@@ -15,7 +15,7 @@ use ref_cast::{ref_cast_custom, RefCastCustom};
 use smallvec::{Array, SmallVec};
 use std::borrow::Borrow;
 use std::num::*;
-use std::ops::{Deref, RangeBounds};
+use std::ops::{Deref, RangeBounds, RangeFull};
 #[cfg(feature = "serde")]
 use {
     core::{fmt, marker::PhantomData},
@@ -691,12 +691,39 @@ impl<T: RangeSetEntry, A: Array<Item = T>> From<RangeTo<T>> for RangeSet<A> {
     }
 }
 
+impl<T: RangeSetEntry, A: Array<Item = T>> From<RangeFull> for RangeSet<A> {
+    fn from(_: RangeFull) -> Self {
+        Self::all()
+    }
+}
+
 /// compute the intersection of this range set with another, producing a new range set
 ///
 /// &forall; t &isin; T, r(t) = a(t) & b(t)
-impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitAnd for &RangeSet<A> {
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitAnd<RangeSet<A>> for RangeSet<A> {
     type Output = RangeSet<A>;
-    fn bitand(self, that: Self) -> Self::Output {
+    fn bitand(self, that: RangeSet<A>) -> Self::Output {
+        self.intersection(&that)
+    }
+}
+
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitAnd<&RangeSet<A>> for RangeSet<A> {
+    type Output = RangeSet<A>;
+    fn bitand(self, that: &RangeSet<A>) -> Self::Output {
+        self.intersection(that)
+    }
+}
+
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitAnd<RangeSet<A>> for &RangeSet<A> {
+    type Output = RangeSet<A>;
+    fn bitand(self, that: RangeSet<A>) -> Self::Output {
+        self.intersection(&that)
+    }
+}
+
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitAnd<&RangeSet<A>> for &RangeSet<A> {
+    type Output = RangeSet<A>;
+    fn bitand(self, that: &RangeSet<A>) -> Self::Output {
         self.intersection(that)
     }
 }
@@ -710,9 +737,30 @@ impl<T: Ord, A: Array<Item = T>> BitAndAssign for RangeSet<A> {
 /// compute the union of this range set with another, producing a new range set
 ///
 /// &forall; t &isin; T, r(t) = a(t) | b(t)
-impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitOr for &RangeSet<A> {
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitOr<RangeSet<A>> for RangeSet<A> {
     type Output = RangeSet<A>;
-    fn bitor(self, that: Self) -> Self::Output {
+    fn bitor(self, that: RangeSet<A>) -> Self::Output {
+        self.union(&that)
+    }
+}
+
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitOr<&RangeSet<A>> for RangeSet<A> {
+    type Output = RangeSet<A>;
+    fn bitor(self, that: &RangeSet<A>) -> Self::Output {
+        self.union(that)
+    }
+}
+
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitOr<RangeSet<A>> for &RangeSet<A> {
+    type Output = RangeSet<A>;
+    fn bitor(self, that: RangeSet<A>) -> Self::Output {
+        self.union(&that)
+    }
+}
+
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitOr<&RangeSet<A>> for &RangeSet<A> {
+    type Output = RangeSet<A>;
+    fn bitor(self, that: &RangeSet<A>) -> Self::Output {
         self.union(that)
     }
 }
@@ -726,9 +774,30 @@ impl<T: Ord, A: Array<Item = T>> BitOrAssign for RangeSet<A> {
 /// compute the exclusive or of this range set with another, producing a new range set
 ///
 /// &forall; t &isin; T, r(t) = a(t) ^ b(t)
-impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitXor for &RangeSet<A> {
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitXor<RangeSet<A>> for RangeSet<A> {
     type Output = RangeSet<A>;
-    fn bitxor(self, that: Self) -> Self::Output {
+    fn bitxor(self, that: RangeSet<A>) -> Self::Output {
+        self.symmetric_difference(&that)
+    }
+}
+
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitXor<&RangeSet<A>> for RangeSet<A> {
+    type Output = RangeSet<A>;
+    fn bitxor(self, that: &RangeSet<A>) -> Self::Output {
+        self.symmetric_difference(that)
+    }
+}
+
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitXor<RangeSet<A>> for &RangeSet<A> {
+    type Output = RangeSet<A>;
+    fn bitxor(self, that: RangeSet<A>) -> Self::Output {
+        self.symmetric_difference(&that)
+    }
+}
+
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> BitXor<&RangeSet<A>> for &RangeSet<A> {
+    type Output = RangeSet<A>;
+    fn bitxor(self, that: &RangeSet<A>) -> Self::Output {
         self.symmetric_difference(that)
     }
 }
@@ -742,9 +811,30 @@ impl<T: RangeSetEntry, A: Array<Item = T>> BitXorAssign for RangeSet<A> {
 /// compute the difference of this range set with another, producing a new range set
 ///
 /// &forall; t &isin; T, r(t) = a(t) & !b(t)
-impl<T: RangeSetEntry + Clone, A: Array<Item = T>> Sub for &RangeSet<A> {
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> Sub<RangeSet<A>> for RangeSet<A> {
     type Output = RangeSet<A>;
-    fn sub(self, that: Self) -> Self::Output {
+    fn sub(self, that: RangeSet<A>) -> Self::Output {
+        self.difference(&that)
+    }
+}
+
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> Sub<&RangeSet<A>> for RangeSet<A> {
+    type Output = RangeSet<A>;
+    fn sub(self, that: &RangeSet<A>) -> Self::Output {
+        self.difference(that)
+    }
+}
+
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> Sub<RangeSet<A>> for &RangeSet<A> {
+    type Output = RangeSet<A>;
+    fn sub(self, that: RangeSet<A>) -> Self::Output {
+        self.difference(&that)
+    }
+}
+
+impl<T: RangeSetEntry + Clone, A: Array<Item = T>> Sub<&RangeSet<A>> for &RangeSet<A> {
+    type Output = RangeSet<A>;
+    fn sub(self, that: &RangeSet<A>) -> Self::Output {
         self.difference(that)
     }
 }
@@ -1347,8 +1437,8 @@ mod tests {
 
         println!("{:?} {:?} {:?} {:?}", x, y, z, r);
 
-        let r2: Test = x.bitand(&y);
-        let r3: Test = x.bitxor(&y);
+        let r2: Test = &x & &y;
+        let r3: Test = &x | &y;
         let r4 = y.is_disjoint(&z);
         let r5 = (&y).bitand(&z);
 
