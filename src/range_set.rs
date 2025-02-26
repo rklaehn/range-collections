@@ -250,6 +250,12 @@ impl<'a, T> Iterator for Iter<'a, T> {
 #[repr(transparent)]
 pub struct RangeSetRef<T>([T]);
 
+impl<T> Default for &RangeSetRef<T> {
+    fn default() -> Self {
+        RangeSetRef::new_unchecked_impl(&[])
+    }
+}
+
 impl<T> RangeSetRef<T> {
     /// Create a new range set reference for an empty range set
     pub const fn empty() -> &'static Self {
