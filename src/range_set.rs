@@ -1,4 +1,5 @@
 #![deny(missing_docs)]
+#![allow(clippy::needless_lifetimes)]
 
 //! A set of non-overlapping ranges
 use crate::merge_state::{
