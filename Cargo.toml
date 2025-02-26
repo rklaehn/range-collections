@@ -1,6 +1,6 @@
 [package]
 name = "range-collections"
-version = "0.4.5"
+version = "0.4.6"
 authors = ["Rüdiger Klaehn <rklaehn@protonmail.com>"]
 description = "Sets and maps of ranges, backed by smallvec"
 repository = "https://github.com/rklaehn/range-collections"
