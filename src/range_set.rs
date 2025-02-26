@@ -857,7 +857,7 @@ impl<T: Ord, A: Array<Item = T>> SubAssign for RangeSet<A> {
 impl<T: RangeSetEntry + Clone, A: Array<Item = T>> Not for RangeSet<A> {
     type Output = RangeSet<A>;
     fn not(mut self) -> Self::Output {
-        match self.0.get(0) {
+        match self.0.first() {
             Some(x) if x.is_min_value() => {
                 self.0.remove(0);
             }
