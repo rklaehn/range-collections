@@ -255,7 +255,10 @@ impl<T> RangeSetRef<T> {
         RangeSetRef::new_unchecked_impl(&[])
     }
 
-    /// Create a new range set reference for a single value
+    /// Create a new range set reference for a single boundary change
+    ///
+    /// This produces a RangeSetRef that goes from off before `value` to on at
+    /// *and after* `value`.
     pub const fn single(value: &T) -> &Self {
         RangeSetRef::new_unchecked_impl(std::slice::from_ref(value))
     }
