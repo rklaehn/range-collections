@@ -92,6 +92,12 @@ use {
 /// Testing is done by some simple smoke tests as well as quickcheck tests of the algebraic properties of the boolean operations.
 pub struct RangeSet<A: Array>(SmallVec<A>);
 
+impl<T, A: Array<Item = T>> Default for RangeSet<A> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
 impl<T, A: Array<Item = T>> Deref for RangeSet<A> {
     type Target = RangeSetRef<T>;
 
