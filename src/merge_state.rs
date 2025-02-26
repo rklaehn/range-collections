@@ -1,3 +1,4 @@
+#![allow(clippy::needless_lifetimes)]
 use crate::iterators::SliceIterator;
 use binary_merge::{MergeOperation, MergeState};
 use core::fmt::Debug;

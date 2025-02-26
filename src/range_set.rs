@@ -1,4 +1,5 @@
 #![deny(missing_docs)]
+#![allow(clippy::needless_lifetimes)]
 
 //! A set of non-overlapping ranges
 use crate::merge_state::{
@@ -91,6 +92,12 @@ use {
 ///
 /// Testing is done by some simple smoke tests as well as quickcheck tests of the algebraic properties of the boolean operations.
 pub struct RangeSet<A: Array>(SmallVec<A>);
+
+impl<T, A: Array<Item = T>> Default for RangeSet<A> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
 
 impl<T, A: Array<Item = T>> Deref for RangeSet<A> {
     type Target = RangeSetRef<T>;
@@ -249,7 +256,10 @@ impl<T> RangeSetRef<T> {
         RangeSetRef::new_unchecked_impl(&[])
     }
 
-    /// Create a new range set reference for a single value
+    /// Create a new range set reference for a single boundary change
+    ///
+    /// This produces a RangeSetRef that goes from off before `value` to on at
+    /// *and after* `value`.
     pub const fn single(value: &T) -> &Self {
         RangeSetRef::new_unchecked_impl(std::slice::from_ref(value))
     }
@@ -851,7 +861,7 @@ impl<T: Ord, A: Array<Item = T>> SubAssign for RangeSet<A> {
 impl<T: RangeSetEntry + Clone, A: Array<Item = T>> Not for RangeSet<A> {
     type Output = RangeSet<A>;
     fn not(mut self) -> Self::Output {
-        match self.0.get(0) {
+        match self.0.first() {
             Some(x) if x.is_min_value() => {
                 self.0.remove(0);
             }
